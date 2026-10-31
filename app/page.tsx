@@ -1,11 +1,31 @@
 export default function Home() {
   return (
     <main style={{ maxWidth: 720, margin: "0 auto", padding: "32px 20px" }}>
-      <header style={{ marginBottom: 32 }}>
-        <p style={{ color: "#0d6efd", fontWeight: 600, margin: 0 }}>Care Clinic</p>
-        <h1 style={{ fontSize: "2rem", margin: "8px 0" }}>Welcome to our clinic</h1>
-        <p style={{ color: "#555", lineHeight: 1.6 }}>
-          A simple starter site. The AI builder will customize this for your business.
+      <header
+        style={{
+          marginBottom: 40,
+          textAlign: "center",
+          padding: "24px 16px",
+          backgroundColor: "#f0f7ff",
+          borderRadius: 16,
+        }}
+      >
+        <p
+          style={{
+            color: "#0d6efd",
+            fontWeight: 700,
+            margin: 0,
+            fontSize: "1.1rem",
+            letterSpacing: "0.04em",
+          }}
+        >
+          Care Clinic
+        </p>
+        <h1 style={{ fontSize: "2.25rem", margin: "8px 0", fontWeight: 700 }}>
+          Your Health, Our Priority
+        </h1>
+        <p style={{ color: "#555", lineHeight: 1.6, margin: 0, fontSize: "1.05rem" }}>
+          Compassionate, comprehensive healthcare for the whole family.
         </p>
       </header>
 
