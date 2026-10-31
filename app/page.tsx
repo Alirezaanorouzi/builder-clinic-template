@@ -6,26 +6,25 @@ export default function Home() {
           marginBottom: 40,
           textAlign: "center",
           padding: "24px 16px",
-          backgroundColor: "#f0f7ff",
+          backgroundColor: "#f0fdf4",
           borderRadius: 16,
         }}
       >
         <p
           style={{
-            color: "#0d6efd",
-            fontWeight: 700,
+            color: "#10b981",
+            fontWeight: 600,
             margin: 0,
             fontSize: "1.1rem",
-            letterSpacing: "0.04em",
           }}
         >
-          Care Clinic
+          Welcome to Care Clinic
         </p>
-        <h1 style={{ fontSize: "2.25rem", margin: "8px 0", fontWeight: 700 }}>
-          Your Health, Our Priority
+        <h1 style={{ fontSize: "2.25rem", margin: "8px 0", fontWeight: 600 }}>
+          Your Health, Our Care
         </h1>
-        <p style={{ color: "#555", lineHeight: 1.6, margin: 0, fontSize: "1.05rem" }}>
-          Compassionate, comprehensive healthcare for the whole family.
+        <p style={{ color: "#374151", lineHeight: 1.6, margin: 0, fontSize: "1.05rem" }}>
+          We're here to help you feel your best. Compassionate, caring healthcare for you and your family.
         </p>
       </header>
 
