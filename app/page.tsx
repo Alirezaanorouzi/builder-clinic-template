@@ -48,6 +48,38 @@ export default function Home() {
           <li>Consultations</li>
         </ul>
       </section>
+
+      <footer
+        style={{
+          marginTop: 40,
+          padding: "32px 20px",
+          borderTop: "1px solid #e5e7eb",
+          textAlign: "center",
+          color: "#4b5563",
+        }}
+      >
+        <p style={{ fontSize: "1.1rem", fontWeight: 600, margin: "0 0 12px 0" }}>
+          Thanks for stopping by 💙
+        </p>
+        <p style={{ margin: "0 0 16px 0", lineHeight: 1.6, fontSize: "1.05rem" }}>
+          We're here for you and your family. Drop us a line anytime — we'd love
+          to hear from you.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
+          <p style={{ margin: 0, fontSize: "0.95rem" }}>
+            Phone: (555) 010-0200
+          </p>
+          <p style={{ margin: 0, fontSize: "0.95rem" }}>
+            Email: hello@careclinic.example
+          </p>
+          <p style={{ margin: 0, fontSize: "0.95rem" }}>
+            Mon–Fri: 9:00 – 18:00 · Sat: 10:00 – 14:00
+          </p>
+        </div>
+        <p style={{ marginTop: 16, fontSize: "0.85rem", color: "#9ca3af" }}>
+          © {new Date().getFullYear()} Care Clinic. Made with care for you.
+        </p>
+      </footer>
     </main>
   );
 }
