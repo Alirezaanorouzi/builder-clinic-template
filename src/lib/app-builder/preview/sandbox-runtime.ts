@@ -8,6 +8,7 @@ import {
   sandboxNameForSession,
 } from "./config"
 import { collectWorkspaceFiles } from "./workspace-files"
+import { sandboxCredentialsFromEnv } from "./sandbox-credentials"
 import type { PreviewRuntimeHandle, PreviewSessionContext } from "./types"
 
 const SANDBOX_WORKDIR = "/vercel/sandbox"
@@ -149,12 +150,15 @@ export async function provisionSandboxPreview(
     await waitForSandboxPort(s, SANDBOX_PREVIEW_PORT, pushLog)
   }
 
+  const credentials = sandboxCredentialsFromEnv()
+
   sandbox = await Sandbox.getOrCreate({
     name,
     ports: [SANDBOX_PREVIEW_PORT],
     persistent: true,
     timeout: SANDBOX_SESSION_TIMEOUT_MS,
     resources: { vcpus: 2 },
+    ...credentials,
     tags: {
       app: "app-builder",
       session: context.id,

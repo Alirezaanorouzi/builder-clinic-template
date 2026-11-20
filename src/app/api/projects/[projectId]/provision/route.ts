@@ -90,6 +90,7 @@ export async function POST(request: Request, { params }: Params) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Provisioning failed."
+    console.error("[provision]", projectId, message, error)
     await updateProject(projectId, user.id, {
       provisionStatus: "error",
       provisionError: message,

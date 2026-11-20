@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
 import { promises as fs } from "node:fs"
-import os from "node:os"
 import path from "node:path"
 
 import {
@@ -18,6 +17,7 @@ import { provisionPreviewRuntime } from "./preview"
 import type { PreviewRuntimeHandle } from "./preview/types"
 import { getBuilderSessionRegistry } from "./session-registry"
 import { generatedAppFiles } from "./template"
+import { resolveAppBuilderRoot } from "./workspace-paths"
 
 type BuilderSession = {
   id: string
@@ -130,7 +130,7 @@ type ProjectNameContext = {
   messages?: ProjectNameMessage[]
 }
 
-const appBuilderRoot = path.join(os.homedir(), ".app-builder")
+const appBuilderRoot = resolveAppBuilderRoot()
 const workspaceRoot = path.join(appBuilderRoot, "sessions")
 const settingsPath = path.join(appBuilderRoot, "settings.json")
 const DEFAULT_PROJECT_NAME_TIMEOUT_MS = 15_000
