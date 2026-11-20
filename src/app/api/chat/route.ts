@@ -2,11 +2,13 @@ import {
   SessionAccessDeniedError,
   assertSessionOwnedByCurrentUser,
 } from "@/lib/auth/assert-session-access"
+import { resolveServerCursorApiKey } from "@/lib/auth/resolve-api-key"
 import {
   AuthNotConfiguredError,
   AuthRequiredError,
 } from "@/lib/auth/get-app-user"
 import {
+  attachBuilderSessionIfMissing,
   getPublicSession,
   streamAgentResponse,
   type AgentStreamEvent,
@@ -66,7 +68,9 @@ export async function POST(request: Request) {
       }
 
       try {
-        const session = await getPublicSession(body.sessionId!)
+        const apiKey = await resolveServerCursorApiKey()
+        await attachBuilderSessionIfMissing(body.sessionId!, apiKey)
+        const session = await getPublicSession(body.sessionId!, { apiKey })
         send("session", session)
 
         await streamAgentResponse(

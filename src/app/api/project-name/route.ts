@@ -2,11 +2,13 @@ import {
   SessionAccessDeniedError,
   assertSessionOwnedByCurrentUser,
 } from "@/lib/auth/assert-session-access"
+import { resolveServerCursorApiKey } from "@/lib/auth/resolve-api-key"
 import {
   AuthNotConfiguredError,
   AuthRequiredError,
 } from "@/lib/auth/get-app-user"
 import {
+  attachBuilderSessionIfMissing,
   generateProjectName,
   ProjectNameGenerationTimeoutError,
   type ProjectNameMessage,
@@ -37,6 +39,9 @@ export async function POST(request: Request) {
     }
 
     await assertSessionOwnedByCurrentUser(sessionId)
+
+    const apiKey = await resolveServerCursorApiKey()
+    await attachBuilderSessionIfMissing(sessionId, apiKey)
 
     const context = { prompt, messages }
     const title = await generateProjectName(sessionId, context)

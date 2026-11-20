@@ -12,6 +12,9 @@ import {
   type SDKModel,
 } from "@cursor/sdk"
 
+import { requireMultiUserMode } from "@/lib/auth/config"
+import { getProjectByBuilderSessionId } from "@/lib/db/projects"
+
 import { isRecognizedCursorApiKey, normalizeCursorApiKey } from "./api-key"
 import { provisionPreviewRuntime } from "./preview"
 import type { PreviewRuntimeHandle } from "./preview/types"
@@ -157,6 +160,7 @@ const fallbackModels: ModelCatalogItem[] = [
 ]
 
 const sessions = getBuilderSessionRegistry<BuilderSession>()
+const attachSessionInFlight = new Map<string, Promise<void>>()
 
 export async function readPersistedCursorApiKey(): Promise<string | null> {
   const settings = await readPersistedSettings()
@@ -251,10 +255,113 @@ export async function createSession(
   return toPublicSession(session)
 }
 
+/**
+ * Serverless instances lose in-memory sessions between invocations. Multi-user
+ * projects store builderSessionId in Neon — rebuild RAM state before chat APIs run.
+ */
+export async function attachBuilderSessionIfMissing(
+  sessionId: string,
+  apiKey: string
+): Promise<void> {
+  if (sessions.has(sessionId)) {
+    return
+  }
+
+  const inflight = attachSessionInFlight.get(sessionId)
+  if (inflight) {
+    await inflight
+    return
+  }
+
+  const work = (async () => {
+    if (sessions.has(sessionId)) {
+      return
+    }
+    if (!requireMultiUserMode()) {
+      throw new UnknownAppBuilderSessionError()
+    }
+
+    const project = await getProjectByBuilderSessionId(sessionId)
+    if (!project?.id || project.provisionStatus !== "ready") {
+      throw new UnknownAppBuilderSessionError()
+    }
+
+    await materializeBuilderSession({
+      sessionId,
+      apiKey,
+      projectId: project.id,
+      previewUrlHint: project.previewUrl ?? undefined,
+    })
+  })()
+
+  attachSessionInFlight.set(sessionId, work)
+  try {
+    await work
+  } finally {
+    attachSessionInFlight.delete(sessionId)
+  }
+}
+
+async function materializeBuilderSession(options: {
+  sessionId: string
+  apiKey: string
+  projectId: string
+  previewUrlHint?: string
+}): Promise<BuilderSession> {
+  const existing = sessions.get(options.sessionId)
+  if (existing) {
+    return existing
+  }
+
+  const projectPath = path.join(
+    workspaceRoot,
+    "projects",
+    options.projectId,
+    "app"
+  )
+  const modelsPromise = listModels(options.apiKey)
+  const userPromise = getCurrentUser(options.apiKey)
+  const session: BuilderSession = {
+    id: options.sessionId,
+    projectId: options.projectId,
+    apiKey: options.apiKey,
+    models: fallbackModels,
+    user: null,
+    projectPath,
+    port: 0,
+    previewUrl: options.previewUrlHint ?? "",
+    logs: [],
+    ready: Promise.resolve(),
+  }
+
+  sessions.set(options.sessionId, session)
+  const readyPromise = prepareSession(session).catch((error: unknown) => {
+    const message = getErrorMessage(error)
+    session.setupError = message
+    session.logs.push(`[setup] ${message}`)
+    sessions.delete(options.sessionId)
+    throw error
+  })
+  session.ready = readyPromise
+
+  const [models, user] = await Promise.all([
+    modelsPromise,
+    userPromise,
+    readyPromise,
+  ])
+  session.models = models
+  session.user = user
+  return session
+}
+
 export async function restoreSession(
   sessionId: string,
   apiKey: string
 ): Promise<PublicSession> {
+  if (!sessions.has(sessionId)) {
+    await attachBuilderSessionIfMissing(sessionId, apiKey)
+  }
+
   const session = sessions.get(sessionId)
 
   if (!session) {
@@ -272,7 +379,16 @@ export async function restoreSession(
   return toPublicSession(session)
 }
 
-export async function getPublicSession(id: string): Promise<PublicSession> {
+export async function getPublicSession(
+  id: string,
+  options?: { apiKey?: string }
+): Promise<PublicSession> {
+  if (!sessions.has(id)) {
+    if (!options?.apiKey) {
+      throw new UnknownAppBuilderSessionError()
+    }
+    await attachBuilderSessionIfMissing(id, options.apiKey)
+  }
   const session = getSession(id)
   await session.ready
   assertSessionReady(session)
