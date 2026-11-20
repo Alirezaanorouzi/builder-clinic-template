@@ -15,7 +15,8 @@ import { updateProject } from "@/lib/db/projects"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-export const maxDuration = 800
+/** Hobby plan max is 300s; use async provision (Phase 2) for longer sandbox boot. */
+export const maxDuration = 300
 
 type Params = { params: Promise<{ projectId: string }> }
 

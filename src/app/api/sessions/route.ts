@@ -21,8 +21,8 @@ import {
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-/** First sandbox provision can take up to ~45 minutes when deployed on Vercel. */
-export const maxDuration = 800
+/** Vercel Hobby caps serverless functions at 300s. */
+export const maxDuration = 300
 
 type SessionRequest = {
   apiKey?: string
