@@ -637,6 +637,14 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
     () => Boolean(session && input.trim() && !isRunning),
     [input, isRunning, session]
   )
+  const showChatComposer = Boolean(session) || multiUserEnabled
+  const chatInputPlaceholder = !session
+    ? isCreatingSession
+      ? "Setting up preview (first run can take several minutes)…"
+      : sessionError
+        ? "Preview is not ready yet. Use Retry below."
+        : "Waiting for preview session…"
+    : "What do you want to build?"
   const visibleMessages = useMemo(() => compactActivityMessages(messages), [
     messages,
   ])
@@ -1075,7 +1083,47 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
     setIsApiKeyClearConfirming(false)
   }
 
+  async function retryMultiUserProvision() {
+    const conversationId = activeConversation.id
+
+    setConversationRuntime(conversationId, (current) => ({
+      ...current,
+      isCreatingSession: true,
+      isCursorTyping: false,
+      sessionError: null,
+    }))
+
+    try {
+      const result = await provisionRemoteProject(conversationId)
+      if (!result.session) {
+        throw new Error("Provision did not return a session.")
+      }
+      restoredConversationIdsRef.current.add(conversationId)
+      applySession(conversationId, result.session as Session)
+      setConversationRuntime(conversationId, (current) => ({
+        ...current,
+        isCreatingSession: false,
+        isCursorTyping: false,
+        sessionError: null,
+      }))
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not start preview."
+      setConversationRuntime(conversationId, (current) => ({
+        ...current,
+        isCreatingSession: false,
+        isCursorTyping: false,
+        sessionError: message,
+      }))
+    }
+  }
+
   async function retrySavedApiKey() {
+    if (multiUserEnabledRef.current) {
+      await retryMultiUserProvision()
+      return
+    }
+
     const conversationId = activeConversation.id
     const restoredSessionId = activeConversation.session?.id
     const savedApiKey = getSavedCursorApiKey()
@@ -1496,10 +1544,10 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
 
   return (
     <main
-      className={cn(
-        "flex h-screen gap-0 bg-background p-0",
-        session ? "" : "items-stretch"
-      )}
+        className={cn(
+          "flex h-screen gap-0 bg-background p-0",
+          session || multiUserEnabled ? "" : "items-stretch"
+        )}
     >
       {isProjectSidebarOpen ? (
         <ConversationSidebar
@@ -1541,12 +1589,16 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
       <Card
         className={cn(
           "flex h-full gap-0 overflow-hidden rounded-none border-y-0 border-l-0 border-r-0 py-0 shadow-none ring-0",
-          session ? "shrink-0 border-r border-border/80" : "min-w-0 flex-1"
+          session || multiUserEnabled
+            ? "shrink-0 border-r border-border/80"
+            : "min-w-0 flex-1"
         )}
-        style={session ? { width: CHAT_WIDTH_DEFAULT } : undefined}
+        style={
+          session || multiUserEnabled ? { width: CHAT_WIDTH_DEFAULT } : undefined
+        }
       >
         <CardContent className="relative flex min-h-0 flex-1 flex-col p-0">
-          {session ? (
+          {session || multiUserEnabled ? (
             <ProjectChatHeader
               conversation={activeConversation}
               session={session}
@@ -1604,7 +1656,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
                 </div>
               ))}
 
-              {!session && hasSavedApiKey && sessionError ? (
+              {!session && (hasSavedApiKey || multiUserEnabled) && sessionError ? (
                 <div className="flex flex-col gap-3 rounded-lg border bg-card p-3">
                   <p className="text-sm text-destructive">{sessionError}</p>
                   <div className="flex gap-2">
@@ -1622,25 +1674,34 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
                       ) : (
                         <Sparkles data-icon="inline-start" />
                       )}
-                      Retry
+                      {multiUserEnabled ? "Retry setup" : "Retry"}
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setApiKeySettingsOpen(true)}
-                      className="rounded-md"
-                    >
-                      Change API key
-                    </Button>
+                    {!hideApiKeySettings ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setApiKeySettingsOpen(true)}
+                        className="rounded-md"
+                      >
+                        Change API key
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
+              ) : null}
+
+              {!session && multiUserEnabled && !sessionError && !isCreatingSession ? (
+                <p className="text-sm text-muted-foreground">
+                  Preview is starting. You can type your first prompt below once setup
+                  finishes.
+                </p>
               ) : null}
 
               <div ref={bottomRef} />
             </div>
           </ScrollArea>
 
-          {session ? (
+          {showChatComposer ? (
             <form
               className="absolute inset-x-0 bottom-0 z-20 bg-linear-to-t from-background via-background/95 to-transparent px-4 pb-4 pt-12"
               onSubmit={sendMessage}
@@ -1660,9 +1721,9 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
                       event.currentTarget.form?.requestSubmit()
                     }
                   }}
-                  placeholder="What do you want to build?"
+                  placeholder={chatInputPlaceholder}
                   rows={1}
-                  disabled={isRunning}
+                  disabled={isRunning || !session}
                   className="max-h-40 min-h-16 resize-none border-0 bg-transparent px-1 py-0 text-base shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent"
                 />
                 <div className="flex items-center justify-between gap-2 pt-3 text-xs text-muted-foreground">
@@ -1713,6 +1774,20 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
               className="min-h-0 flex-1 border-0 bg-white"
               onLoad={() => setIsPreviewFrameLoading(false)}
             />
+          </CardContent>
+        </Card>
+      ) : multiUserEnabled ? (
+        <Card className="flex min-w-0 flex-1 gap-0 overflow-hidden rounded-none border-0 py-0 shadow-none ring-0">
+          <CardContent className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-muted/20 p-6 text-center">
+            <p className="text-sm font-medium text-muted-foreground">
+              {isCreatingSession
+                ? "Preparing preview environment…"
+                : "Preview will appear here after setup"}
+            </p>
+            <p className="max-w-sm text-xs text-muted-foreground/80">
+              On Vercel Hobby, sandbox setup may time out at 5 minutes. If setup
+              fails, use Retry setup in the chat panel.
+            </p>
           </CardContent>
         </Card>
       ) : null}
@@ -3451,7 +3526,7 @@ function ProjectChatHeader({
   updatedAt,
 }: {
   conversation: Conversation
-  session: Session
+  session: Session | null
   title: string
   updatedAt: number
 }) {
@@ -3488,9 +3563,15 @@ function ProjectChatHeader({
             </PopoverDescription>
           </PopoverHeader>
           <dl className="flex flex-col gap-2 text-xs">
-            <ProjectInfoRow label="Path" value={session.projectPath} mono />
-            <ProjectInfoRow label="Preview" value={session.previewUrl} mono />
-            <ProjectInfoRow label="Session" value={session.id} mono />
+            {session ? (
+              <>
+                <ProjectInfoRow label="Path" value={session.projectPath} mono />
+                <ProjectInfoRow label="Preview" value={session.previewUrl} mono />
+                <ProjectInfoRow label="Session" value={session.id} mono />
+              </>
+            ) : (
+              <ProjectInfoRow label="Preview" value="Provisioning…" />
+            )}
             <ProjectInfoRow
               label="Created"
               value={formatMetadataTimestamp(conversation.createdAt)}
