@@ -258,7 +258,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
   const [hasHydratedChatState, setHasHydratedChatState] = useState(false)
   const [isPreviewFrameLoading, setIsPreviewFrameLoading] = useState(true)
   const [apiKey, setApiKey] = useState("")
-  const [hasSavedApiKey, setHasSavedApiKey] = useState(false)
+  const [hasSavedApiKey, setHasSavedApiKey] = useState(multiUserEnabled)
   const [runtimeByConversationId, setRuntimeByConversationId] = useState<
     Record<string, ConversationRuntimeState>
   >(() => {
@@ -761,6 +761,9 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
   }
 
   function openOnboarding() {
+    if (multiUserEnabled) {
+      return
+    }
     setApiKey("")
     setIsOnboardingOpen(true)
     setConversationRuntime(activeConversation.id, (current) => ({
@@ -1713,7 +1716,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
           </CardContent>
         </Card>
       ) : null}
-      {isOnboardingOpen ? (
+      {isOnboardingOpen && !multiUserEnabled ? (
         <ApiKeyOnboardingModal
           apiKey={apiKey}
           isCreatingSession={isCreatingSession}
@@ -3137,7 +3140,11 @@ function ConversationSidebar({
               type="button"
               variant="ghost"
               className="min-w-0 flex-1 justify-start rounded-md px-2 py-1.5 text-sm text-muted-foreground"
-              onClick={hasSavedApiKey ? onCreateConversation : onRequireApiKey}
+              onClick={
+                multiUserEnabled || hasSavedApiKey
+                  ? onCreateConversation
+                  : onRequireApiKey
+              }
             >
               <Plus data-icon="inline-start" />
               New project
