@@ -6,6 +6,7 @@ import {
   SANDBOX_SESSION_TIMEOUT_MS,
   SANDBOX_VITE_READY_TIMEOUT_MS,
   sandboxNameForSession,
+  sandboxPersistentEnabled,
 } from "./config"
 import { collectWorkspaceFiles } from "./workspace-files"
 import { sandboxCredentialsFromEnv } from "./sandbox-credentials"
@@ -155,7 +156,7 @@ export async function provisionSandboxPreview(
   sandbox = await Sandbox.getOrCreate({
     name,
     ports: [SANDBOX_PREVIEW_PORT],
-    persistent: true,
+    persistent: sandboxPersistentEnabled(),
     timeout: SANDBOX_SESSION_TIMEOUT_MS,
     resources: { vcpus: 2 },
     ...credentials,

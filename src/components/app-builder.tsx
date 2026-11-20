@@ -4245,6 +4245,18 @@ function getFriendlySessionError(message: string) {
     ].join(" ")
   }
 
+  if (
+    message.includes("Snapshots Storage") ||
+    message.includes("payment_required") ||
+    message.includes("Status code 402")
+  ) {
+    return [
+      "Vercel Sandbox snapshot storage on your Hobby team is full.",
+      "In the Vercel dashboard open Sandboxes, delete old app-builder sandboxes (and snapshots), or run npm run sandboxes:cleanup locally.",
+      "Then use Retry setup. To avoid filling snapshots on Hobby, set APP_BUILDER_SANDBOX_PERSISTENT=false in Production (slower cold starts).",
+    ].join(" ")
+  }
+
   return message
 }
 

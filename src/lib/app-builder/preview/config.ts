@@ -26,6 +26,15 @@ export function getPreviewRuntimeKind(): PreviewRuntimeKind {
   return value === "sandbox" ? "sandbox" : "local"
 }
 
+/** Persistent sandboxes keep snapshots (fast resume, counts against Hobby storage caps). */
+export function sandboxPersistentEnabled(): boolean {
+  const raw = process.env.APP_BUILDER_SANDBOX_PERSISTENT?.trim().toLowerCase()
+  if (raw === "false" || raw === "0" || raw === "off") {
+    return false
+  }
+  return true
+}
+
 export function sandboxNameForSession(
   sessionId: string,
   projectId?: string
