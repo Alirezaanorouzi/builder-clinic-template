@@ -20,6 +20,7 @@ import { provisionPreviewRuntime } from "./preview"
 import type { PreviewRuntimeHandle } from "./preview/types"
 import { getBuilderSessionRegistry } from "./session-registry"
 import { generatedAppFiles } from "./template"
+import { buildLocalAgentOptions } from "./cursor-local-agent"
 import { resolveAppBuilderRoot } from "./workspace-paths"
 
 type BuilderSession = {
@@ -474,6 +475,10 @@ async function promptProjectNameWithXml(
   const agent = await Agent.create({
     apiKey,
     model: { id: process.env.CURSOR_PROJECT_NAME_MODEL ?? "composer-2" },
+    local: await buildLocalAgentOptions({
+      cwd: process.cwd(),
+      sessionId: `project-name-${randomUUID()}`,
+    }),
   })
 
   try {
@@ -1034,9 +1039,14 @@ async function getOrCreateAgent(session: BuilderSession) {
   session.agent = await Agent.create({
     apiKey: session.apiKey,
     model: { id: process.env.CURSOR_MODEL ?? "composer-2" },
-    local: {
+    local: await buildLocalAgentOptions({
       cwd: session.projectPath,
-    },
+      projectId: session.projectId,
+      sessionId: session.id,
+    }),
+    ...(session.projectId
+      ? { agentId: `app-builder-project-${session.projectId}` }
+      : {}),
   })
 
   return session.agent
