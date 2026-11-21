@@ -6,8 +6,8 @@ import { requireMultiUserMode } from "@/lib/auth/config"
 export default function Home() {
   if (!requireMultiUserMode()) {
     return (
-      <main className="flex h-screen items-center justify-center bg-background p-6">
-        <div className="max-w-md space-y-3 text-center">
+      <main className="flex min-h-dvh items-center justify-center bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:p-6">
+        <div className="max-w-md space-y-4 px-1 text-center">
           <h1 className="text-lg font-semibold">Cloud builder setup</h1>
           <p className="text-sm text-muted-foreground">
             Add Clerk keys and <code className="text-xs">DATABASE_URL</code>, run{" "}

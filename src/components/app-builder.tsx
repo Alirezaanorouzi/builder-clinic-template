@@ -5,6 +5,7 @@ import Link from "next/link"
 import {
   FormEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -22,9 +23,12 @@ import {
 } from "@/lib/app-builder/multi-user-api"
 import {
   BrainIcon as Brain,
+  BrowserIcon as Browser,
   CaretDownIcon as CaretDown,
+  ChatsTeardropIcon as Chats,
   FileTextIcon as FileText,
   FilesIcon as Files,
+  FoldersIcon as Folders,
   FlaskIcon as FlaskConical,
   HammerIcon as Hammer,
   InfoIcon as Info,
@@ -200,8 +204,9 @@ type ProjectContextMenuState = {
   y: number
 }
 
-const CHAT_WIDTH_DEFAULT = 400
+const MOBILE_LAYOUT_MQ = "(min-width: 768px)"
 const GROUPED_FILE_TARGET_LIMIT = 4
+type MobileMainTab = "chat" | "preview"
 const PROJECT_NAME_TIMEOUT_MS = 15_000
 const fallbackModels: ModelCatalogItem[] = [
   {
@@ -228,7 +233,9 @@ export function AppBuilder() {
   const [runtimeByConversationId, setRuntimeByConversationId] = useState<
     Record<string, ConversationRuntimeState>
   >({})
-  const [isProjectSidebarOpen, setIsProjectSidebarOpen] = useState(true)
+  const [isProjectSidebarOpen, setIsProjectSidebarOpen] = useState(false)
+  const [mobileMainTab, setMobileMainTab] = useState<MobileMainTab>("chat")
+  const [isDesktopLayout, setIsDesktopLayout] = useState(false)
   const [titleGenerationConversationIds, setTitleGenerationConversationIds] =
     useState(() => new Set<string>())
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -269,6 +276,28 @@ export function AppBuilder() {
   useEffect(() => {
     conversationsRef.current = conversations
   }, [conversations])
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(MOBILE_LAYOUT_MQ)
+    const syncLayout = () => {
+      const desktop = mediaQuery.matches
+      setIsDesktopLayout(desktop)
+      if (desktop) {
+        setIsProjectSidebarOpen((open) => open || true)
+      }
+    }
+
+    syncLayout()
+    mediaQuery.addEventListener("change", syncLayout)
+    return () => mediaQuery.removeEventListener("change", syncLayout)
+  }, [])
+
+  useEffect(() => {
+    if (session) {
+      return
+    }
+    setMobileMainTab("chat")
+  }, [activeConversationId, session])
 
   useEffect(() => {
     if (!isClerkLoaded) {
@@ -1140,102 +1169,135 @@ export function AppBuilder() {
     )
   }
 
+  function selectConversation(conversationId: string) {
+    setActiveConversationId(conversationId)
+    if (!isDesktopLayout) {
+      setIsProjectSidebarOpen(false)
+      setMobileMainTab("chat")
+    }
+  }
+
+  const sidebarProps = {
+    conversations: sidebarConversations,
+    activeConversationId: activeConversation.id,
+    isCreatingSession,
+    titleGenerationConversationIds,
+    user: session?.user ?? null,
+    onCreateConversation: createConversation,
+    onGenerateName: generateConversationTitle,
+    onHideSidebar: () => setIsProjectSidebarOpen(false),
+    onSelectConversation: selectConversation,
+    onRenameConversation: renameConversation,
+  }
+
+  const showMobileChat = mobileMainTab === "chat" || isDesktopLayout
+  const showMobilePreview = mobileMainTab === "preview" || isDesktopLayout
+
   if (!hasHydratedChatState) {
     return (
-      <main className="flex h-screen gap-0 bg-background p-0 items-stretch" />
+      <main className="flex min-h-dvh items-stretch bg-background" />
     )
   }
 
   return (
-    <main className="flex h-screen gap-0 bg-background p-0">
-      {isProjectSidebarOpen ? (
-        <ConversationSidebar
-          conversations={sidebarConversations}
-          activeConversationId={activeConversation.id}
-          isCreatingSession={isCreatingSession}
-          titleGenerationConversationIds={titleGenerationConversationIds}
-          user={session?.user ?? null}
-          onCreateConversation={createConversation}
-          onGenerateName={generateConversationTitle}
-          onHideSidebar={() => setIsProjectSidebarOpen(false)}
-          onSelectConversation={setActiveConversationId}
-          onRenameConversation={renameConversation}
-        />
-      ) : (
+    <main className="flex h-dvh max-h-dvh w-full flex-col bg-background md:h-screen md:flex-row">
+      {isDesktopLayout && isProjectSidebarOpen ? (
+        <ConversationSidebar {...sidebarProps} layout="docked" />
+      ) : null}
+      {isDesktopLayout && !isProjectSidebarOpen ? (
         <CollapsedProjectSidebar
           onShowSidebar={() => setIsProjectSidebarOpen(true)}
         />
-      )}
-      <Card
-        className="flex h-full shrink-0 gap-0 overflow-hidden rounded-none border-y-0 border-l-0 border-r border-border/80 py-0 shadow-none ring-0"
-        style={{ width: CHAT_WIDTH_DEFAULT }}
-      >
-        <CardContent className="relative flex min-h-0 flex-1 flex-col p-0">
-          <ProjectChatHeader
-            conversation={activeConversation}
-            session={session}
-            title={activeConversation.title}
-            updatedAt={activeConversation.updatedAt}
-          />
-          <ScrollArea className="min-h-0 flex-1">
-            <div
-              className={cn(
-                "flex min-h-full flex-col gap-2.5 p-3",
-                session && "pb-48",
-                !showProjectSetup && "justify-end",
-                showProjectSetup && "items-center justify-center"
-              )}
-            >
-              {showProjectSetup ? (
-                <p className="text-sm font-medium text-muted-foreground">
-                  Setting up project… Sandbox mode can take 10–40 minutes on first
-                  run.
-                </p>
-              ) : isCursorTyping ? (
-                <div className="mr-8 flex w-fit items-center gap-2 rounded-md bg-muted/70 px-2.5 py-1.5 text-sm text-muted-foreground">
-                  <Loader2 aria-hidden="true" className="animate-spin" />
-                  Cursor is typing...
-                </div>
-              ) : null}
+      ) : null}
 
-              {visibleMessages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "flex flex-col gap-1 text-sm leading-6",
-                    getMessageDisplayRole(message) === "user" &&
-                      "w-fit max-w-[85%] self-end rounded-md bg-muted/80 px-3 py-2 text-foreground",
-                    getMessageDisplayRole(message) === "assistant" &&
-                      "py-1 text-foreground",
-                    getMessageDisplayRole(message) === "activity" &&
-                      "py-px text-xs leading-5 text-muted-foreground/85",
-                    getMessageDisplayRole(message) === "system" &&
-                      "rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-destructive"
-                  )}
-                >
-                  {message.role === "user" ? (
-                    <p className="whitespace-pre-wrap break-words">
-                      {message.content || "Working..."}
-                    </p>
-                  ) : getMessageDisplayRole(message) === "activity" ? (
-                    <ActivityMessage message={message} />
-                  ) : message.role === "assistant" && !message.content ? (
-                    <AssistantPending />
-                  ) : (
-                    <MarkdownMessage content={message.content || "Working..."} />
-                  )}
-                </div>
-              ))}
+      {!isDesktopLayout && isProjectSidebarOpen ? (
+        <MobileProjectsDrawer
+          onClose={() => setIsProjectSidebarOpen(false)}
+          sidebar={<ConversationSidebar {...sidebarProps} layout="drawer" />}
+        />
+      ) : null}
 
-              {!session && sessionError ? (
-                <div className="flex flex-col gap-3 rounded-lg border bg-card p-3">
-                  <p className="text-sm text-destructive">{sessionError}</p>
-                  <div className="flex gap-2">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
+        <Card
+          className={cn(
+            "flex min-h-0 min-w-0 flex-1 flex-col gap-0 overflow-hidden rounded-none border-0 py-0 shadow-none ring-0 md:shrink-0 md:border-r md:border-border/80",
+            !showMobileChat && "hidden md:flex",
+            "md:w-[400px]"
+          )}
+        >
+          <CardContent className="relative flex min-h-0 flex-1 flex-col p-0">
+            <ProjectChatHeader
+              conversation={activeConversation}
+              session={session}
+              title={activeConversation.title}
+              updatedAt={activeConversation.updatedAt}
+              showProjectsButton={!isDesktopLayout}
+              onOpenProjects={() => setIsProjectSidebarOpen(true)}
+              onOpenPreview={
+                session && !isDesktopLayout
+                  ? () => setMobileMainTab("preview")
+                  : undefined
+              }
+            />
+            <ScrollArea className="min-h-0 flex-1">
+              <div
+                className={cn(
+                  "flex min-h-full flex-col gap-3 p-3 pb-4",
+                  session && "pb-44 md:pb-48",
+                  !showProjectSetup && "justify-end",
+                  showProjectSetup && "items-center justify-center px-4"
+                )}
+              >
+                {showProjectSetup ? (
+                  <p className="text-center text-sm font-medium text-muted-foreground">
+                    Setting up project… First run can take 10–40 minutes.
+                  </p>
+                ) : isCursorTyping ? (
+                  <div className="flex w-fit max-w-full items-center gap-2 rounded-lg bg-muted/70 px-3 py-2 text-sm text-muted-foreground">
+                    <Loader2 aria-hidden="true" className="animate-spin" />
+                    Cursor is typing...
+                  </div>
+                ) : null}
+
+                {visibleMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={cn(
+                      "flex flex-col gap-1 text-[15px] leading-6 md:text-sm",
+                      getMessageDisplayRole(message) === "user" &&
+                        "w-fit max-w-[92%] self-end rounded-2xl bg-muted/90 px-3.5 py-2.5 text-foreground",
+                      getMessageDisplayRole(message) === "assistant" &&
+                        "py-1 text-foreground",
+                      getMessageDisplayRole(message) === "activity" &&
+                        "py-px text-xs leading-5 text-muted-foreground/85",
+                      getMessageDisplayRole(message) === "system" &&
+                        "rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-destructive"
+                    )}
+                  >
+                    {message.role === "user" ? (
+                      <p className="whitespace-pre-wrap break-words">
+                        {message.content || "Working..."}
+                      </p>
+                    ) : getMessageDisplayRole(message) === "activity" ? (
+                      <ActivityMessage message={message} />
+                    ) : message.role === "assistant" && !message.content ? (
+                      <AssistantPending />
+                    ) : (
+                      <MarkdownMessage
+                        content={message.content || "Working..."}
+                      />
+                    )}
+                  </div>
+                ))}
+
+                {!session && sessionError ? (
+                  <div className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+                    <p className="text-sm text-destructive">{sessionError}</p>
                     <Button
                       type="button"
                       onClick={retryMultiUserProvision}
                       disabled={isCreatingSession}
-                      className="rounded-md"
+                      className="min-h-11 w-full rounded-lg md:w-auto"
                     >
                       {isCreatingSession ? (
                         <Loader2
@@ -1248,60 +1310,58 @@ export function AppBuilder() {
                       Retry setup
                     </Button>
                   </div>
-                </div>
-              ) : null}
+                ) : null}
 
-              {!session && !sessionError && !isCreatingSession ? (
-                <p className="text-sm text-muted-foreground">
-                  Preview is starting. You can type your first prompt below once setup
-                  finishes.
-                </p>
-              ) : null}
+                {!session && !sessionError && !isCreatingSession ? (
+                  <p className="text-center text-sm text-muted-foreground">
+                    Preview is starting. You can send your first prompt once setup
+                    finishes.
+                  </p>
+                ) : null}
 
-              <div ref={bottomRef} />
-            </div>
-          </ScrollArea>
+                <div ref={bottomRef} />
+              </div>
+            </ScrollArea>
 
-          {showChatComposer ? (
-            <form
-              className="absolute inset-x-0 bottom-0 z-20 bg-linear-to-t from-background via-background/95 to-transparent px-4 pb-4 pt-12"
-              onSubmit={sendMessage}
-            >
-              <div className="rounded-xl border bg-background p-3 shadow-sm transition-colors focus-within:border-ring/60 focus-within:ring-3 focus-within:ring-ring/15">
-                <Textarea
-                  value={input}
-                  onChange={(event) =>
-                    setConversationInput(
-                      activeConversation.id,
-                      event.target.value
-                    )
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault()
-                      event.currentTarget.form?.requestSubmit()
+            {showChatComposer ? (
+              <form
+                className="absolute inset-x-0 bottom-0 z-20 bg-linear-to-t from-background via-background/95 to-transparent px-3 pb-2 pt-10 md:px-4 md:pb-4 md:pt-12"
+                onSubmit={sendMessage}
+              >
+                <div className="rounded-2xl border bg-background p-3 shadow-sm transition-colors focus-within:border-ring/60 focus-within:ring-3 focus-within:ring-ring/15">
+                  <Textarea
+                    value={input}
+                    onChange={(event) =>
+                      setConversationInput(
+                        activeConversation.id,
+                        event.target.value
+                      )
                     }
-                  }}
-                  placeholder={chatInputPlaceholder}
-                  rows={1}
-                  disabled={isRunning || !session}
-                  className="max-h-40 min-h-16 resize-none border-0 bg-transparent px-1 py-0 text-base shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent"
-                />
-                <div className="flex items-center justify-between gap-2 pt-3 text-xs text-muted-foreground">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <ModelConfigPopover
-                      models={availableModels}
-                      selectedModel={selectedModel}
-                      model={model}
-                      onModelChange={selectModel}
-                      onParameterChange={selectModelParameter}
-                    />
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault()
+                        event.currentTarget.form?.requestSubmit()
+                      }
+                    }}
+                    placeholder={chatInputPlaceholder}
+                    rows={1}
+                    disabled={isRunning || !session}
+                    className="max-h-36 min-h-12 resize-none border-0 bg-transparent px-1 py-0 text-base shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent"
+                  />
+                  <div className="flex items-center justify-between gap-2 pt-2 text-xs text-muted-foreground">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <ModelConfigPopover
+                        models={availableModels}
+                        selectedModel={selectedModel}
+                        model={model}
+                        onModelChange={selectModel}
+                        onParameterChange={selectModelParameter}
+                      />
+                    </div>
                     <Button
                       type="submit"
-                      size="icon-sm"
-                      className="size-7 rounded-full bg-foreground text-background hover:bg-foreground/90 [&_svg:not([class*='size-'])]:size-4"
+                      size="icon"
+                      className="size-11 shrink-0 rounded-full bg-foreground text-background hover:bg-foreground/90 md:size-9"
                       disabled={!canSubmit}
                       aria-label="Send message"
                     >
@@ -1313,43 +1373,64 @@ export function AppBuilder() {
                     </Button>
                   </div>
                 </div>
-              </div>
-            </form>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      {session ? (
-        <Card className="flex min-w-0 flex-1 gap-0 overflow-hidden rounded-none border-0 py-0 shadow-none ring-0">
-          <CardContent className="relative flex min-h-0 flex-1 flex-col bg-background p-0">
-            {isPreviewFrameLoading ? (
-              <h2 className="absolute inset-x-0 top-4 z-10 px-4 text-center text-sm font-medium text-muted-foreground">
-                Loading cloud preview (first start can take 10–40 min)…
-              </h2>
+              </form>
             ) : null}
-            <iframe
-              title="Generated app preview"
-              src={session.previewUrl}
-              className="min-h-0 flex-1 border-0 bg-white"
-              onLoad={() => setIsPreviewFrameLoading(false)}
-            />
           </CardContent>
         </Card>
-      ) : (
-        <Card className="flex min-w-0 flex-1 gap-0 overflow-hidden rounded-none border-0 py-0 shadow-none ring-0">
-          <CardContent className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-muted/20 p-6 text-center">
-            <p className="text-sm font-medium text-muted-foreground">
-              {isCreatingSession
-                ? "Preparing preview environment…"
-                : "Preview will appear here after setup"}
-            </p>
-            <p className="max-w-sm text-xs text-muted-foreground/80">
-              On Vercel Hobby, sandbox setup may time out at 5 minutes. If setup
-              fails, use Retry setup in the chat panel.
-            </p>
-          </CardContent>
+
+        <Card
+          className={cn(
+            "flex min-h-0 min-w-0 flex-1 flex-col gap-0 overflow-hidden rounded-none border-0 py-0 shadow-none ring-0",
+            !showMobilePreview && "hidden md:flex"
+          )}
+        >
+          {session ? (
+            <CardContent className="relative flex min-h-0 flex-1 flex-col bg-background p-0">
+              {isPreviewFrameLoading ? (
+                <p className="absolute inset-x-0 top-[max(0.75rem,env(safe-area-inset-top))] z-10 px-4 text-center text-xs font-medium text-muted-foreground md:top-4 md:text-sm">
+                  Loading preview (first start can take 10–40 min)…
+                </p>
+              ) : null}
+              <iframe
+                title="Generated app preview"
+                src={session.previewUrl}
+                className="min-h-0 flex-1 border-0 bg-white"
+                onLoad={() => setIsPreviewFrameLoading(false)}
+              />
+            </CardContent>
+          ) : (
+            <CardContent className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-muted/20 p-6 text-center">
+              <p className="text-sm font-medium text-muted-foreground">
+                {isCreatingSession
+                  ? "Preparing preview…"
+                  : "Preview appears after setup"}
+              </p>
+              <p className="max-w-xs text-xs text-muted-foreground/80">
+                Switch to Chat to send prompts or tap Retry if setup failed.
+              </p>
+              {!isDesktopLayout ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11 rounded-lg"
+                  onClick={() => setMobileMainTab("chat")}
+                >
+                  Back to chat
+                </Button>
+              ) : null}
+            </CardContent>
+          )}
         </Card>
-      )}
+      </div>
+
+      {!isDesktopLayout ? (
+        <MobileBottomNav
+          activeTab={mobileMainTab}
+          previewReady={Boolean(session)}
+          onTabChange={setMobileMainTab}
+          onOpenProjects={() => setIsProjectSidebarOpen(true)}
+        />
+      ) : null}
     </main>
   )
 }
@@ -2476,6 +2557,118 @@ function AssistantPending() {
   )
 }
 
+function MobileProjectsDrawer({
+  sidebar,
+  onClose,
+}: {
+  sidebar: ReactNode
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [])
+
+  return (
+    <div className="fixed inset-0 z-50 md:hidden">
+      <button
+        type="button"
+        className="absolute inset-0 bg-foreground/30 backdrop-blur-[2px]"
+        aria-label="Close projects"
+        onClick={onClose}
+      />
+      <div className="absolute inset-y-0 left-0 flex w-[min(20rem,calc(100vw-2.5rem))] max-w-full flex-col border-r bg-background pt-[env(safe-area-inset-top)] shadow-xl">
+        {sidebar}
+      </div>
+    </div>
+  )
+}
+
+function MobileBottomNav({
+  activeTab,
+  previewReady,
+  onTabChange,
+  onOpenProjects,
+}: {
+  activeTab: MobileMainTab
+  previewReady: boolean
+  onTabChange: (tab: MobileMainTab) => void
+  onOpenProjects: () => void
+}) {
+  return (
+    <nav
+      className="flex shrink-0 border-t bg-background/95 backdrop-blur-md pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1 md:hidden"
+      role="tablist"
+      aria-label="Main navigation"
+    >
+      <MobileNavItem
+        active={activeTab === "chat"}
+        label="Chat"
+        icon={Chats}
+        onClick={() => onTabChange("chat")}
+      />
+      <MobileNavItem
+        active={activeTab === "preview"}
+        label="Preview"
+        icon={Browser}
+        onClick={() => onTabChange("preview")}
+        badge={previewReady ? undefined : "…"}
+      />
+      <MobileNavItem
+        active={false}
+        label="Projects"
+        icon={Folders}
+        onClick={onOpenProjects}
+      />
+    </nav>
+  )
+}
+
+function MobileNavItem({
+  active,
+  label,
+  icon: Icon,
+  onClick,
+  badge,
+}: {
+  active: boolean
+  label: string
+  icon: PhosphorIcon
+  onClick: () => void
+  badge?: string
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      className={cn(
+        "flex min-h-14 flex-1 touch-manipulation flex-col items-center justify-center gap-0.5 px-1 text-[11px] font-medium transition-colors",
+        active ? "text-foreground" : "text-muted-foreground"
+      )}
+      onClick={onClick}
+    >
+      <span
+        className={cn(
+          "relative grid size-9 place-items-center rounded-xl",
+          active && "bg-muted"
+        )}
+      >
+        <Icon aria-hidden className="size-5" weight={active ? "fill" : "regular"} />
+        {badge ? (
+          <span className="absolute -right-0.5 -top-0.5 text-[10px] text-muted-foreground">
+            {badge}
+          </span>
+        ) : null}
+      </span>
+      {label}
+    </button>
+  )
+}
+
 function ClerkSidebarAuthControls() {
   const { isSignedIn } = useAuth()
 
@@ -2500,6 +2693,7 @@ function ConversationSidebar({
   isCreatingSession,
   titleGenerationConversationIds,
   user,
+  layout = "docked",
   onCreateConversation,
   onGenerateName,
   onHideSidebar,
@@ -2511,6 +2705,7 @@ function ConversationSidebar({
   isCreatingSession: boolean
   titleGenerationConversationIds: ReadonlySet<string>
   user: CurrentUser | null
+  layout?: "docked" | "drawer"
   onCreateConversation: () => void
   onGenerateName: (conversationId: string) => void
   onHideSidebar: () => void
@@ -2632,14 +2827,21 @@ function ConversationSidebar({
   }
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r bg-muted/30">
+    <aside
+      className={cn(
+        "flex h-full flex-col bg-muted/30",
+        layout === "docked"
+          ? "w-64 shrink-0 border-r"
+          : "min-h-0 w-full flex-1"
+      )}
+    >
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-1 px-2 pt-2">
+        <div className="flex flex-col gap-1 px-2 pb-2 pt-2">
           <div className="mb-1 flex items-center gap-1">
             <Button
               type="button"
               variant="ghost"
-              className="min-w-0 flex-1 justify-start rounded-md px-2 py-1.5 text-sm text-muted-foreground"
+              className="min-h-11 min-w-0 flex-1 justify-start rounded-lg px-2 py-2 text-sm text-muted-foreground"
               onClick={onCreateConversation}
               disabled={isCreatingSession}
             >
@@ -2670,7 +2872,7 @@ function ConversationSidebar({
                 type="button"
                 variant="ghost"
                 className={cn(
-                  "relative h-auto w-full justify-start rounded-md px-2 py-1.5 text-left text-muted-foreground",
+                  "relative h-auto min-h-11 w-full justify-start rounded-lg px-2 py-2.5 text-left text-muted-foreground",
                   isActive && "bg-muted text-foreground"
                 )}
                 aria-current={isActive ? "page" : undefined}
@@ -2789,7 +2991,7 @@ function ConversationSidebar({
           ) : null}
         </div>
       </ScrollArea>
-      <div className="flex items-center justify-between gap-2 py-2 pl-4 pr-2">
+      <div className="flex items-center justify-between gap-2 border-t py-3 pl-4 pr-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <div className="min-w-0 flex-1">
           {user ? (
             <p
@@ -2814,7 +3016,7 @@ function CollapsedProjectSidebar({
   onShowSidebar: () => void
 }) {
   return (
-    <div className="flex h-full w-12 shrink-0 flex-col items-center border-r bg-muted/30 py-2">
+    <div className="hidden h-full w-12 shrink-0 flex-col items-center border-r bg-muted/30 py-2 md:flex">
       <Button
         type="button"
         variant="ghost"
@@ -2835,22 +3037,52 @@ function ProjectChatHeader({
   session,
   title,
   updatedAt,
+  showProjectsButton,
+  onOpenProjects,
+  onOpenPreview,
 }: {
   conversation: Conversation
   session: Session | null
   title: string
   updatedAt: number
+  showProjectsButton?: boolean
+  onOpenProjects?: () => void
+  onOpenPreview?: () => void
 }) {
   return (
-    <div className="flex min-h-10 items-center justify-between gap-2 border-b px-3 py-1.5">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-foreground">
+    <div className="flex min-h-12 items-center gap-2 border-b px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:min-h-10 md:px-3 md:py-1.5 md:pt-2">
+      {showProjectsButton ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-10 shrink-0 rounded-lg text-muted-foreground md:hidden"
+          aria-label="Open projects"
+          onClick={onOpenProjects}
+        >
+          <PanelLeftOpen aria-hidden className="size-5" />
+        </Button>
+      ) : null}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-base font-semibold text-foreground md:text-sm">
           {title}
         </p>
         <p className="truncate text-xs text-muted-foreground">
           {formatHeaderUpdatedAt(updatedAt)}
         </p>
       </div>
+      {onOpenPreview ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9 shrink-0 rounded-lg px-2.5 text-xs md:hidden"
+          onClick={onOpenPreview}
+        >
+          <Browser data-icon="inline-start" className="size-4" />
+          Preview
+        </Button>
+      ) : null}
       <Popover>
         <PopoverTrigger
           render={
@@ -2870,7 +3102,7 @@ function ProjectChatHeader({
           <PopoverHeader>
             <PopoverTitle>Project info</PopoverTitle>
             <PopoverDescription>
-              Local preview and workspace metadata.
+              Cloud sandbox preview and workspace metadata.
             </PopoverDescription>
           </PopoverHeader>
           <dl className="flex flex-col gap-2 text-xs">
