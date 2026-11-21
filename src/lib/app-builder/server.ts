@@ -251,18 +251,21 @@ export async function attachBuilderSessionIfMissing(
   sessionId: string,
   apiKey: string
 ): Promise<void> {
-  if (sessions.has(sessionId)) {
-    return
-  }
-
   const inflight = attachSessionInFlight.get(sessionId)
   if (inflight) {
     await inflight
+    await waitForAttachedBuilderSession(sessionId)
+    return
+  }
+
+  if (sessions.has(sessionId)) {
+    await waitForAttachedBuilderSession(sessionId)
     return
   }
 
   const work = (async () => {
     if (sessions.has(sessionId)) {
+      await waitForAttachedBuilderSession(sessionId)
       return
     }
     if (!requireMultiUserMode()) {
@@ -270,7 +273,7 @@ export async function attachBuilderSessionIfMissing(
     }
 
     const project = await getProjectByBuilderSessionId(sessionId)
-    if (!project?.id || project.provisionStatus !== "ready") {
+    if (!project?.id || project.builderSessionId !== sessionId) {
       throw new UnknownAppBuilderSessionError()
     }
 
@@ -289,6 +292,25 @@ export async function attachBuilderSessionIfMissing(
   } finally {
     attachSessionInFlight.delete(sessionId)
   }
+  await waitForAttachedBuilderSession(sessionId)
+}
+
+async function waitForAttachedBuilderSession(sessionId: string) {
+  if (!sessions.has(sessionId)) {
+    throw new UnknownAppBuilderSessionError()
+  }
+  const session = sessions.get(sessionId)!
+  try {
+    await session.ready
+  } catch {
+    if (!sessions.has(sessionId)) {
+      throw new UnknownAppBuilderSessionError()
+    }
+    if (session.setupError) {
+      throw new Error(session.setupError)
+    }
+    throw new UnknownAppBuilderSessionError()
+  }
 }
 
 async function materializeBuilderSession(options: {
@@ -305,6 +327,7 @@ async function materializeBuilderSession(options: {
       existing.agentRunnerSecret = options.agentRunnerSecret
     }
     if (!existing.previewHandle?.agentRunnerUrl) {
+      existing.setupError = undefined
       await prepareSession(existing)
     }
     return existing
@@ -337,7 +360,6 @@ async function materializeBuilderSession(options: {
     const message = getErrorMessage(error)
     session.setupError = message
     session.logs.push(`[setup] ${message}`)
-    sessions.delete(options.sessionId)
     throw error
   })
   session.ready = readyPromise
@@ -409,8 +431,12 @@ export async function streamAgentResponse(
   sessionId: string,
   userMessage: string,
   model: string | undefined,
-  emit: (event: AgentStreamEvent) => void
+  emit: (event: AgentStreamEvent) => void,
+  options?: { apiKey?: string }
 ) {
+  if (!sessions.has(sessionId) && options?.apiKey) {
+    await attachBuilderSessionIfMissing(sessionId, options.apiKey)
+  }
   const session = getSession(sessionId)
   await session.ready
   assertSessionReady(session)
@@ -1038,6 +1064,8 @@ async function ensureSandboxAgentHandle(session: BuilderSession) {
     return session.previewHandle
   }
 
+  session.setupError = undefined
+  session.setupError = undefined
   await prepareSession(session)
   const handle = session.previewHandle
   if (!handle?.agentRunnerUrl || !handle.agentRunnerSecret) {

@@ -93,6 +93,10 @@ export const fa = {
     provisionProject: "راه‌اندازی پروژه ناموفق بود.",
     startPreview: "شروع پیش‌نمایش ناموفق بود.",
     agentFailed: "درخواست دستیار ناموفق بود.",
+    sessionUnknown: [
+      "نشست سازنده شناخته نشد.",
+      "از منوی پروژه «آماده‌سازی مجدد» را بزنید یا پروژه را یک‌بار ببندید و دوباره باز کنید.",
+    ].join(" "),
     agentBusy:
       "کرسر هنوز روی درخواست قبلی کار می‌کند. کمی صبر کنید و دوباره امتحان کنید.",
     projectNameTimeout: "زمان تولید نام پروژه تمام شد. دوباره امتحان کنید.",
@@ -254,6 +258,10 @@ export function friendlyAgentError(error: unknown): string {
 
   if (message.toLowerCase().includes("already has active run")) {
     return fa.errors.agentBusy
+  }
+
+  if (/unknown app builder session/i.test(message)) {
+    return fa.errors.sessionUnknown
   }
 
   return message

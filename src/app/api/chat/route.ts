@@ -79,7 +79,8 @@ export async function POST(request: Request) {
           body.sessionId!,
           body.message!,
           body.model,
-          (event: AgentStreamEvent) => send(event.type, event)
+          (event: AgentStreamEvent) => send(event.type, event),
+          { apiKey }
         )
 
         send("done", { ok: true })
