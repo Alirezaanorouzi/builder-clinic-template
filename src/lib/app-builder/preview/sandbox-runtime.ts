@@ -12,7 +12,7 @@ import {
   SANDBOX_VM_SESSION_BOOTSTRAP_MS,
   SANDBOX_VM_SESSION_TIMEOUT_MS,
   ensureSandboxSessionTimeoutAtLeast,
-  SANDBOX_VITE_READY_TIMEOUT_MS,
+  SANDBOX_NEXT_DEV_READY_TIMEOUT_MS,
   sandboxNameForSession,
   sandboxPersistentEnabled,
 } from "./config"
@@ -57,12 +57,23 @@ async function runNpmInstall(
   sandbox: Sandbox,
   pushLog: (line: string) => void
 ) {
-  pushLog("npm install started (can take 10–30+ minutes on a cold sandbox)…")
+  pushLog(
+    "npm install for Next.js dev preview (no Vite; cold sandboxes can take several minutes)…"
+  )
 
   const install = await sandbox.runCommand({
     cmd: "npm",
-    args: ["install", "--no-audit", "--no-fund", "--prefer-offline"],
+    args: [
+      "install",
+      "--no-audit",
+      "--no-fund",
+      "--prefer-offline",
+      "--omit=optional",
+    ],
     cwd: SANDBOX_WORKDIR,
+    env: {
+      NEXT_TELEMETRY_DISABLED: "1",
+    },
   })
 
   const stderr = await install.stderr()
@@ -93,6 +104,9 @@ async function startNextDevDetached(sandbox: Sandbox) {
     ],
     cwd: SANDBOX_WORKDIR,
     detached: true,
+    env: {
+      NEXT_TELEMETRY_DISABLED: "1",
+    },
   })
 }
 
@@ -114,7 +128,7 @@ async function waitForSandboxPort(
   port: number,
   pushLog: (line: string) => void,
   pathCheck = "/",
-  timeoutMs = SANDBOX_VITE_READY_TIMEOUT_MS
+  timeoutMs = SANDBOX_NEXT_DEV_READY_TIMEOUT_MS
 ) {
   const startedAt = Date.now()
   let lastProgressLog = startedAt
@@ -196,9 +210,11 @@ export async function provisionSandboxPreview(
   const startPreviewServices = async (
     s: Sandbox,
     logLabel: string,
-    previewWaitMs = SANDBOX_VITE_READY_TIMEOUT_MS
+    previewWaitMs = SANDBOX_NEXT_DEV_READY_TIMEOUT_MS
   ) => {
-    pushLog(`${logLabel}: starting Next.js (port ${SANDBOX_PREVIEW_PORT})…`)
+    pushLog(
+      `${logLabel}: starting next dev --turbopack (port ${SANDBOX_PREVIEW_PORT})…`
+    )
     await startNextDevDetached(s)
     await waitForSandboxPort(s, SANDBOX_PREVIEW_PORT, pushLog, "/", previewWaitMs)
     pushLog(`${logLabel}: starting agent runner (port ${SANDBOX_AGENT_RUNNER_PORT})…`)
@@ -252,7 +268,7 @@ export async function provisionSandboxPreview(
         await writeTemplateToSandbox(s)
         await runNpmInstall(s, pushLog)
       }
-      await startPreviewServices(s, "onResume", SANDBOX_VITE_READY_TIMEOUT_MS)
+      await startPreviewServices(s, "onResume", SANDBOX_NEXT_DEV_READY_TIMEOUT_MS)
     },
   })
 
@@ -293,7 +309,7 @@ export async function provisionSandboxPreview(
       await startPreviewServices(
         sandbox,
         previewRunning ? "runner restart" : "service restart",
-        SANDBOX_VITE_READY_TIMEOUT_MS
+        SANDBOX_NEXT_DEV_READY_TIMEOUT_MS
       )
     }
   }

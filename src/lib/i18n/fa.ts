@@ -39,7 +39,7 @@ export const fa = {
     session: "نشست",
     created: "ایجاد",
     updated: "به‌روزرسانی",
-    provisioning: "در حال آماده‌سازی…",
+    provisioning: "در حال آماده‌سازی ساندباکس (Next.js)…",
     previewReady: "پیش‌نمایش آماده است",
     noPreviewYet: "هنوز پیش‌نمایشی نیست",
   },
@@ -119,7 +119,7 @@ export const fa = {
   },
   sessionErrors: {
     sandboxTimeout: [
-      "زمان راه‌اندازی پیش‌نمایش ساندباکس (npm یا Vite) تمام شد.",
+      "زمان راه‌اندازی پیش‌نمایش ساندباکس (npm install و next dev) تمام شد.",
       "چند دقیقه صبر کنید و یک‌بار «تلاش مجدد برای راه‌اندازی» را بزنید.",
     ].join(" "),
     sandboxMisconfig: [
@@ -232,7 +232,7 @@ export function friendlySessionError(message: string): string {
       return `${base} (بوت runner دستیار روی پورت ${port} طول کشید؛ چند دقیقه دیگر تلاش کنید یا پروژه جدید بسازید.)`
     }
     if (port === "5173") {
-      return `${base} (Next.js هنوز بالا نیامده؛ اولین بار ممکن است چند دقیقه طول بکشد.)`
+      return `${base} (سرور devِ Next.js هنوز بالا نیامده؛ اولین بار ممکن است چند دقیقه طول بکشد.)`
     }
     return base
   }

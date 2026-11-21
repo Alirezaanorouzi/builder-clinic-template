@@ -12,7 +12,7 @@ export const generatedAppFiles: TemplateFile[] = [
         private: true,
         version: "0.0.0",
         scripts: {
-          dev: "next dev",
+          dev: "next dev --turbopack",
           build: "next build",
           start: "next start",
         },
@@ -21,12 +21,6 @@ export const generatedAppFiles: TemplateFile[] = [
           next: "16.2.4",
           react: "19.2.4",
           "react-dom": "19.2.4",
-        },
-        devDependencies: {
-          "@types/node": "^20",
-          "@types/react": "^19",
-          "@types/react-dom": "^19",
-          typescript: "^5",
         },
       },
       null,

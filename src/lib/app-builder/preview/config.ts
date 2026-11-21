@@ -2,6 +2,7 @@ import type { Sandbox } from "@vercel/sandbox"
 
 export type PreviewRuntimeKind = "sandbox"
 
+/** Next.js `next dev` port in the sandbox (not Vite — 5173 is legacy from early previews). */
 export const SANDBOX_PREVIEW_PORT = 5173
 export const SANDBOX_AGENT_RUNNER_PORT = 3921
 
@@ -34,16 +35,26 @@ export async function ensureSandboxSessionTimeoutAtLeast(
 /** @deprecated Use SANDBOX_VM_SESSION_* constants. */
 export const SANDBOX_SESSION_TIMEOUT_MS = SANDBOX_VM_SESSION_TIMEOUT_MS
 
-/** First `npm install` + Next.js boot in a new sandbox VM can take 10–40+ minutes. */
-export const SANDBOX_VITE_READY_TIMEOUT_MS = Math.min(
-  parsePositiveInt(process.env.SANDBOX_VITE_READY_TIMEOUT_MS, 40 * 60 * 1000),
+function sandboxNextDevReadyTimeoutFromEnv() {
+  const raw =
+    process.env.SANDBOX_NEXT_DEV_READY_TIMEOUT_MS ??
+    process.env.SANDBOX_VITE_READY_TIMEOUT_MS
+  return parsePositiveInt(raw, 40 * 60 * 1000)
+}
+
+/** First `npm install` + `next dev` in a new sandbox VM can take several minutes (cold). */
+export const SANDBOX_NEXT_DEV_READY_TIMEOUT_MS = Math.min(
+  sandboxNextDevReadyTimeoutFromEnv(),
   SANDBOX_VM_SESSION_BOOTSTRAP_MS - 60_000
 )
 
-/** Agent runner health during provision (after preview is up). */
+/** @deprecated Use SANDBOX_NEXT_DEV_READY_TIMEOUT_MS */
+export const SANDBOX_VITE_READY_TIMEOUT_MS = SANDBOX_NEXT_DEV_READY_TIMEOUT_MS
+
+/** Agent runner health during provision (after Next.js dev is up). */
 export const SANDBOX_SERVICE_READY_TIMEOUT_MS = Math.min(
   parsePositiveInt(process.env.SANDBOX_SERVICE_READY_TIMEOUT_MS, 10 * 60 * 1000),
-  SANDBOX_VITE_READY_TIMEOUT_MS
+  SANDBOX_NEXT_DEV_READY_TIMEOUT_MS
 )
 
 function parsePositiveInt(raw: string | undefined, fallback: number) {
