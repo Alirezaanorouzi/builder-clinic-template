@@ -1,3 +1,5 @@
+import { fa } from "@/lib/i18n/fa"
+
 export type RemoteProject = {
   id: string
   title: string
@@ -37,7 +39,7 @@ export async function createRemoteProject(title?: string): Promise<RemoteProject
   })
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string }
-    throw new Error(data.error ?? "Failed to create project.")
+    throw new Error(data.error ?? fa.errors.createProject)
   }
   const data = (await response.json()) as { project: RemoteProject }
   return data.project
@@ -54,7 +56,7 @@ export async function patchRemoteProject(
   })
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string }
-    throw new Error(data.error ?? "Failed to update project.")
+    throw new Error(data.error ?? fa.errors.updateProject)
   }
 }
 
@@ -80,7 +82,7 @@ export async function replaceRemoteMessages(
   })
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string }
-    throw new Error(data.error ?? "Failed to save messages.")
+    throw new Error(data.error ?? fa.errors.saveMessages)
   }
 }
 
@@ -96,7 +98,7 @@ export async function provisionRemoteProject(projectId: string, apiKey?: string)
     provisionStatus?: string
   }
   if (!response.ok) {
-    throw new Error(data.error ?? "Failed to provision project.")
+    throw new Error(data.error ?? fa.errors.provisionProject)
   }
   return data
 }

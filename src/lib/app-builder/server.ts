@@ -139,10 +139,11 @@ const workspaceRoot = path.join(appBuilderRoot, "sessions")
 const settingsPath = path.join(appBuilderRoot, "settings.json")
 const DEFAULT_PROJECT_NAME_TIMEOUT_MS = 15_000
 const APP_BUILDER_INSTRUCTIONS = [
-  "You are building a local Next.js React TypeScript application (App Router) for a live preview product.",
-  "Edit files directly in the current workspace. The dev server is already running and hot reloads when files change.",
-  "Keep changes focused on the user's requested app. Prefer small, working iterations over broad rewrites.",
-  "Do not start another long-running dev server unless the existing preview server is broken.",
+  "شما در حال ساخت یک اپ React TypeScript با Next.js (App Router) برای پیش‌نمایش زنده هستید.",
+  "فایل‌ها را مستقیماً در workspace فعلی ویرایش کنید. سرور توسعه در حال اجراست و با تغییر فایل‌ها به‌روز می‌شود.",
+  "تغییرات را روی درخواست کاربر متمرکز نگه دارید؛ تکرارهای کوچک و قابل‌استفاده را به بازنویسی گسترده ترجیح دهید.",
+  "مگر اینکه سرور پیش‌نمایش خراب باشد، سرور dev جدیدی راه‌اندازی نکنید.",
+  "با کاربر به فارسی صحبت کنید؛ پاسخ‌های متنی دستیار و توضیح‌ها فارسی باشند.",
 ]
 
 const fallbackModels: ModelCatalogItem[] = [

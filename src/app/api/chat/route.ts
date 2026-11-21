@@ -13,6 +13,8 @@ import {
   streamAgentResponse,
   type AgentStreamEvent,
 } from "@/lib/app-builder/server"
+import { apiErrors } from "@/lib/i18n/api-errors"
+import { friendlyAgentError } from "@/lib/i18n/fa"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -28,7 +30,7 @@ export async function POST(request: Request) {
 
   if (!body.sessionId || !body.message?.trim()) {
     return Response.json(
-      { error: "sessionId and message are required." },
+      { error: apiErrors.sessionAndMessageRequired },
       { status: 400 }
     )
   }
@@ -37,13 +39,13 @@ export async function POST(request: Request) {
     await assertSessionOwnedByCurrentUser(body.sessionId)
   } catch (error) {
     if (error instanceof AuthRequiredError) {
-      return Response.json({ code: error.code, error: "Sign in required." }, {
+      return Response.json({ code: error.code, error: apiErrors.signInRequired }, {
         status: 401,
       })
     }
     if (error instanceof AuthNotConfiguredError) {
       return Response.json(
-        { code: error.code, error: "Multi-user mode is not configured." },
+        { code: error.code, error: apiErrors.multiUserNotConfigured },
         { status: 503 }
       )
     }
@@ -54,7 +56,7 @@ export async function POST(request: Request) {
       )
     }
     const message =
-      error instanceof Error ? error.message : "Authorization failed."
+      error instanceof Error ? error.message : apiErrors.authorizationFailed
     return Response.json({ error: message }, { status: 500 })
   }
 
@@ -82,7 +84,7 @@ export async function POST(request: Request) {
 
         send("done", { ok: true })
       } catch (error) {
-        const message = getFriendlyErrorMessage(error)
+        const message = friendlyAgentError(error)
         send("error", { message })
       } finally {
         controller.close()
@@ -100,13 +102,3 @@ export async function POST(request: Request) {
   })
 }
 
-function getFriendlyErrorMessage(error: unknown) {
-  const message =
-    error instanceof Error ? error.message : "The agent run failed."
-
-  if (message.toLowerCase().includes("already has active run")) {
-    return "Cursor is still working on the previous request. Wait a moment and try again."
-  }
-
-  return message
-}

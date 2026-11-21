@@ -1,9 +1,6 @@
-import {
-  AuthNotConfiguredError,
-  AuthRequiredError,
-  getAppUser,
-} from "@/lib/auth/get-app-user"
+import { getAppUser } from "@/lib/auth/get-app-user"
 import { createProject, listProjectsForUser } from "@/lib/db/projects"
+import { authErrorResponse } from "@/lib/i18n/auth-error-response"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -31,21 +28,4 @@ export async function POST(request: Request) {
   } catch (error) {
     return authErrorResponse(error)
   }
-}
-
-function authErrorResponse(error: unknown) {
-  if (error instanceof AuthRequiredError) {
-    return Response.json({ code: error.code, error: "Sign in required." }, {
-      status: 401,
-    })
-  }
-  if (error instanceof AuthNotConfiguredError) {
-    return Response.json(
-      { code: error.code, error: "Multi-user mode is not configured." },
-      { status: 503 }
-    )
-  }
-  const message =
-    error instanceof Error ? error.message : "Request failed."
-  return Response.json({ error: message }, { status: 500 })
 }

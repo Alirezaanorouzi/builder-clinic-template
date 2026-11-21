@@ -1,8 +1,6 @@
-import {
-  AuthNotConfiguredError,
-  AuthRequiredError,
-} from "@/lib/auth/get-app-user"
 import { requireProjectForUser } from "@/lib/auth/require-project-access"
+import { apiErrors } from "@/lib/i18n/api-errors"
+import { authErrorResponse } from "@/lib/i18n/auth-error-response"
 import {
   appendMessage,
   listMessagesForProject,
@@ -19,7 +17,7 @@ export async function GET(_request: Request, { params }: Params) {
     const { projectId } = await params
     const access = await requireProjectForUser(projectId)
     if (!access) {
-      return Response.json({ error: "Project not found." }, { status: 404 })
+      return Response.json({ error: apiErrors.projectNotFound }, { status: 404 })
     }
     const messages = await listMessagesForProject(projectId)
     return Response.json({ messages })
@@ -45,7 +43,7 @@ export async function POST(request: Request, { params }: Params) {
     const { projectId } = await params
     const access = await requireProjectForUser(projectId)
     if (!access) {
-      return Response.json({ error: "Project not found." }, { status: 404 })
+      return Response.json({ error: apiErrors.projectNotFound }, { status: 404 })
     }
 
     const body = (await request.json()) as PostBody
@@ -64,7 +62,7 @@ export async function POST(request: Request, { params }: Params) {
 
     if (!body.message?.role) {
       return Response.json(
-        { error: "message.role is required for append mode." },
+        { error: apiErrors.messagesRoleRequired },
         { status: 400 }
       )
     }
@@ -79,21 +77,4 @@ export async function POST(request: Request, { params }: Params) {
   } catch (error) {
     return authErrorResponse(error)
   }
-}
-
-function authErrorResponse(error: unknown) {
-  if (error instanceof AuthRequiredError) {
-    return Response.json({ code: error.code, error: "Sign in required." }, {
-      status: 401,
-    })
-  }
-  if (error instanceof AuthNotConfiguredError) {
-    return Response.json(
-      { code: error.code, error: "Multi-user mode is not configured." },
-      { status: 503 }
-    )
-  }
-  const message =
-    error instanceof Error ? error.message : "Request failed."
-  return Response.json({ error: message }, { status: 500 })
 }

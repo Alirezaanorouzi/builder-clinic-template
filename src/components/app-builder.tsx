@@ -76,6 +76,15 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import {
+  defaultProjectTitle,
+  fa,
+  friendlyAgentError,
+  friendlySessionError,
+  getNextProjectNumber,
+  isPlaceholderProjectTitle,
+  localizeActivityContent,
+} from "@/lib/i18n/fa"
 import { cn } from "@/lib/utils"
 
 type Session = {
@@ -211,13 +220,13 @@ const PROJECT_NAME_TIMEOUT_MS = 15_000
 const fallbackModels: ModelCatalogItem[] = [
   {
     id: "auto",
-    label: "Auto",
+    label: fa.model.auto,
     parameters: [],
     defaultParams: [],
   },
   {
     id: "composer-2",
-    label: "Composer 2",
+    label: fa.model.composer2,
     parameters: [],
     defaultParams: [],
   },
@@ -250,7 +259,7 @@ export function AppBuilder() {
     () =>
       getConversationById(conversations, activeConversationId) ??
       conversations[0] ??
-      createEmptyConversation("Project 1"),
+      createEmptyConversation(defaultProjectTitle(1)),
     [activeConversationId, conversations]
   )
   const activeRuntime =
@@ -315,7 +324,7 @@ export function AppBuilder() {
       try {
         let remoteProjects = await fetchProjects()
         if (remoteProjects.length === 0) {
-          const created = await createRemoteProject("Project 1")
+          const created = await createRemoteProject(defaultProjectTitle(1))
           remoteProjects = [created]
         }
 
@@ -347,7 +356,7 @@ export function AppBuilder() {
           return
         }
         const message =
-          error instanceof Error ? error.message : "Failed to load projects."
+          error instanceof Error ? error.message : fa.errors.loadProjects
         setConversationRuntime(activeConversationId, (current) => ({
           ...current,
           sessionError: message,
@@ -454,8 +463,8 @@ export function AppBuilder() {
             return
           }
 
-          const message = getFriendlySessionError(
-            error instanceof Error ? error.message : "Could not start preview."
+          const message = friendlySessionError(
+            error instanceof Error ? error.message : fa.errors.startPreview
           )
           setConversationRuntime(conversation.id, (current) => ({
             ...current,
@@ -536,11 +545,11 @@ export function AppBuilder() {
   const showChatComposer = true
   const chatInputPlaceholder = !session
     ? isCreatingSession
-      ? "Setting up preview (first run can take several minutes)…"
+      ? fa.chat.placeholderProvisioning
       : sessionError
-        ? "Preview is not ready yet. Use Retry below."
-        : "Waiting for preview session…"
-    : "What do you want to build?"
+        ? fa.chat.placeholderNotReady
+        : fa.chat.placeholderWaiting
+    : fa.chat.placeholderReady
   const visibleMessages = useMemo(() => compactActivityMessages(messages), [
     messages,
   ])
@@ -634,7 +643,7 @@ export function AppBuilder() {
         setActiveConversationId(conversation.id)
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "Failed to create project."
+          error instanceof Error ? error.message : fa.errors.createProject
         setConversationRuntime(activeConversationId, (current) => ({
           ...current,
           sessionError: message,
@@ -807,7 +816,7 @@ export function AppBuilder() {
     try {
       const result = await provisionRemoteProject(conversationId)
       if (!result.session) {
-        throw new Error("Provision did not return a session.")
+        throw new Error(fa.errors.provisionNoSession)
       }
       restoredConversationIdsRef.current.add(conversationId)
       applySession(conversationId, result.session as Session)
@@ -819,7 +828,7 @@ export function AppBuilder() {
       }))
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Could not start preview."
+        error instanceof Error ? error.message : fa.errors.startPreview
       setConversationRuntime(conversationId, (current) => ({
         ...current,
         isCreatingSession: false,
@@ -874,12 +883,12 @@ export function AppBuilder() {
 
       if (!response.ok || !response.body) {
         const data = await response.json().catch(() => ({}))
-        throw new Error(data.error ?? "The agent request failed.")
+        throw new Error(data.error ?? fa.errors.agentFailed)
       }
 
       await readAgentStream(response.body, conversationId, assistantId)
     } catch (error) {
-      const message = getFriendlyErrorMessage(error)
+      const message = friendlyAgentError(error)
       setConversationMessages(conversationId, (current) => [
         ...current,
         { id: crypto.randomUUID(), role: "system", content: message },
@@ -934,7 +943,7 @@ export function AppBuilder() {
 
     if (parsed.event === "error") {
       const data = parsed.data as { message?: string }
-      throw new Error(data.message ?? "The agent run failed.")
+      throw new Error(data.message ?? fa.errors.agentFailed)
     }
 
     if (parsed.event === "session") {
@@ -1250,12 +1259,12 @@ export function AppBuilder() {
               >
                 {showProjectSetup ? (
                   <p className="text-center text-sm font-medium text-muted-foreground">
-                    Setting up project… First run can take 10–40 minutes.
+                    {fa.chat.setupBanner}
                   </p>
                 ) : isCursorTyping ? (
                   <div className="flex w-fit max-w-full items-center gap-2 rounded-lg bg-muted/70 px-3 py-2 text-sm text-muted-foreground">
                     <Loader2 aria-hidden="true" className="animate-spin" />
-                    Cursor is typing...
+                    {fa.chat.cursorTyping}
                   </div>
                 ) : null}
 
@@ -1276,7 +1285,7 @@ export function AppBuilder() {
                   >
                     {message.role === "user" ? (
                       <p className="whitespace-pre-wrap break-words">
-                        {message.content || "Working..."}
+                        {message.content || fa.chat.working}
                       </p>
                     ) : getMessageDisplayRole(message) === "activity" ? (
                       <ActivityMessage message={message} />
@@ -1284,7 +1293,7 @@ export function AppBuilder() {
                       <AssistantPending />
                     ) : (
                       <MarkdownMessage
-                        content={message.content || "Working..."}
+                        content={message.content || fa.chat.working}
                       />
                     )}
                   </div>
@@ -1307,15 +1316,14 @@ export function AppBuilder() {
                       ) : (
                         <Sparkles data-icon="inline-start" />
                       )}
-                      Retry setup
+                      {fa.chat.retrySetup}
                     </Button>
                   </div>
                 ) : null}
 
                 {!session && !sessionError && !isCreatingSession ? (
                   <p className="text-center text-sm text-muted-foreground">
-                    Preview is starting. You can send your first prompt once setup
-                    finishes.
+                    {fa.chat.previewStarting}
                   </p>
                 ) : null}
 
@@ -1363,7 +1371,7 @@ export function AppBuilder() {
                       size="icon"
                       className="size-11 shrink-0 rounded-full bg-foreground text-background hover:bg-foreground/90 md:size-9"
                       disabled={!canSubmit}
-                      aria-label="Send message"
+                      aria-label={fa.chat.send}
                     >
                       {isRunning ? (
                         <Loader2 className="animate-spin" />
@@ -1388,11 +1396,11 @@ export function AppBuilder() {
             <CardContent className="relative flex min-h-0 flex-1 flex-col bg-background p-0">
               {isPreviewFrameLoading ? (
                 <p className="absolute inset-x-0 top-[max(0.75rem,env(safe-area-inset-top))] z-10 px-4 text-center text-xs font-medium text-muted-foreground md:top-4 md:text-sm">
-                  Loading preview (first start can take 10–40 min)…
+                  {fa.preview.loading}
                 </p>
               ) : null}
               <iframe
-                title="Generated app preview"
+                title={fa.preview.iframeTitle}
                 src={session.previewUrl}
                 className="min-h-0 flex-1 border-0 bg-white"
                 onLoad={() => setIsPreviewFrameLoading(false)}
@@ -1402,11 +1410,11 @@ export function AppBuilder() {
             <CardContent className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-muted/20 p-6 text-center">
               <p className="text-sm font-medium text-muted-foreground">
                 {isCreatingSession
-                  ? "Preparing preview…"
-                  : "Preview appears after setup"}
+                  ? fa.preview.preparing
+                  : fa.preview.afterSetup}
               </p>
               <p className="max-w-xs text-xs text-muted-foreground/80">
-                Switch to Chat to send prompts or tap Retry if setup failed.
+                {fa.preview.emptyHint}
               </p>
               {!isDesktopLayout ? (
                 <Button
@@ -1415,7 +1423,7 @@ export function AppBuilder() {
                   className="min-h-11 rounded-lg"
                   onClick={() => setMobileMainTab("chat")}
                 >
-                  Back to chat
+                  {fa.preview.backToChat}
                 </Button>
               ) : null}
             </CardContent>
@@ -1474,7 +1482,9 @@ function finalizeThinkingContent(content: string) {
   const normalized = normalizeActivityContent(content) ?? content
   const detail = normalized.replace(/^Thinking(?: through)?(?:\.\.\.)?:?\s*/i, "")
 
-  return detail && detail !== normalized ? `Thought: ${detail}` : "Thought"
+  return detail && detail !== normalized
+    ? `${fa.activity.thought} ${detail}`
+    : fa.activity.thoughtDone
 }
 
 function mergeActivityContent(
@@ -1780,8 +1790,8 @@ function getFinishedToolLabel(toolName: string) {
     return toolName.replace(/ing changes$/, "ed changes")
   }
 
-  if (toolName === "Reading context") {
-    return "Read context"
+  if (toolName === fa.activity.readingContext || toolName === "Reading context") {
+    return fa.activity.readContext
   }
 
   if (toolName.endsWith("ing")) {
@@ -2051,7 +2061,7 @@ function humanizeToolName(name: string) {
   const normalized = name.toLowerCase()
 
   if (normalized.includes("read") || normalized.includes("search")) {
-    return "Reading context"
+    return fa.activity.readingContext
   }
 
   if (
@@ -2059,7 +2069,7 @@ function humanizeToolName(name: string) {
     normalized.includes("write") ||
     normalized.includes("patch")
   ) {
-    return "Editing files"
+    return fa.activity.editingFiles
   }
 
   if (
@@ -2068,7 +2078,7 @@ function humanizeToolName(name: string) {
     normalized.includes("test") ||
     normalized.includes("build")
   ) {
-    return "Checking changes"
+    return fa.activity.checkingChanges
   }
 
   return name
@@ -2107,8 +2117,9 @@ const activityIconMap: Record<ActivityIcon, PhosphorIcon> = {
 }
 
 function ActivityMessage({ message }: { message: ChatMessage }) {
-  const content = normalizeActivityContent(message.content) ?? ""
-  const Icon = activityIconMap[getActivityIcon(message, content)]
+  const rawContent = normalizeActivityContent(message.content) ?? ""
+  const content = localizeActivityContent(rawContent)
+  const Icon = activityIconMap[getActivityIcon(message, rawContent)]
   const segments = getActivityInlineSegments(content)
   const count = message.activityCount ?? getActivityCount(content)
 
@@ -2544,7 +2555,7 @@ function AssistantPending() {
   return (
     <div
       className="flex items-center gap-1 py-1 text-muted-foreground"
-      aria-label="Assistant is thinking"
+      aria-label={fa.chat.assistantThinking}
     >
       {[0, 1, 2].map((index) => (
         <span
@@ -2577,10 +2588,10 @@ function MobileProjectsDrawer({
       <button
         type="button"
         className="absolute inset-0 bg-foreground/30 backdrop-blur-[2px]"
-        aria-label="Close projects"
+        aria-label={fa.project.closeProjects}
         onClick={onClose}
       />
-      <div className="absolute inset-y-0 left-0 flex w-[min(20rem,calc(100vw-2.5rem))] max-w-full flex-col border-r bg-background pt-[env(safe-area-inset-top)] shadow-xl">
+      <div className="absolute inset-y-0 start-0 flex w-[min(20rem,calc(100vw-2.5rem))] max-w-full flex-col border-e bg-background pt-[env(safe-area-inset-top)] shadow-xl">
         {sidebar}
       </div>
     </div>
@@ -2602,24 +2613,24 @@ function MobileBottomNav({
     <nav
       className="flex shrink-0 border-t bg-background/95 backdrop-blur-md pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1 md:hidden"
       role="tablist"
-      aria-label="Main navigation"
+      aria-label={fa.nav.main}
     >
       <MobileNavItem
         active={activeTab === "chat"}
-        label="Chat"
+        label={fa.nav.chat}
         icon={Chats}
         onClick={() => onTabChange("chat")}
       />
       <MobileNavItem
         active={activeTab === "preview"}
-        label="Preview"
+        label={fa.nav.preview}
         icon={Browser}
         onClick={() => onTabChange("preview")}
         badge={previewReady ? undefined : "…"}
       />
       <MobileNavItem
         active={false}
-        label="Projects"
+        label={fa.nav.projects}
         icon={Folders}
         onClick={onOpenProjects}
       />
@@ -2682,7 +2693,7 @@ function ClerkSidebarAuthControls() {
       variant="outline"
       size="sm"
       nativeButton={false}
-      render={<Link href="/sign-in">Sign in</Link>}
+      render={<Link href="/sign-in">{fa.auth.signIn}</Link>}
     />
   )
 }
@@ -2846,15 +2857,15 @@ function ConversationSidebar({
               disabled={isCreatingSession}
             >
               <Plus data-icon="inline-start" />
-              New project
+              {fa.project.new}
             </Button>
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
               className="rounded-md text-muted-foreground"
-              aria-label="Hide projects sidebar"
-              title="Hide projects sidebar"
+              aria-label={fa.project.hideSidebar}
+              title={fa.project.hideSidebar}
               onClick={onHideSidebar}
             >
               <PanelLeftClose aria-hidden="true" />
@@ -2889,7 +2900,7 @@ function ConversationSidebar({
                     <span className="truncate">{conversation.title}</span>
                     {isGeneratingName ? (
                       <Loader2
-                        aria-label="Generating project name"
+                        aria-label={fa.project.generatingName}
                         className="size-3 shrink-0 animate-spin text-muted-foreground"
                       />
                     ) : null}
@@ -2905,7 +2916,7 @@ function ConversationSidebar({
             <div
               ref={contextMenuRef}
               role="menu"
-              aria-label="Project actions"
+              aria-label={fa.project.actions}
               className="fixed z-50 min-w-44 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
               style={{ left: contextMenu.x, top: contextMenu.y }}
             >
@@ -2924,7 +2935,7 @@ function ConversationSidebar({
                           : current
                       )
                     }
-                    aria-label="Project name"
+                    aria-label={fa.project.info}
                     className="h-8 rounded-sm"
                   />
                   <div className="flex gap-1">
@@ -2934,7 +2945,7 @@ function ConversationSidebar({
                       className="h-8 flex-1 rounded-sm"
                       disabled={!renameState.title.trim()}
                     >
-                      Save
+                      {fa.project.save}
                     </Button>
                     <Button
                       type="button"
@@ -2943,7 +2954,7 @@ function ConversationSidebar({
                       className="h-8 flex-1 rounded-sm"
                       onClick={() => setRenameState(null)}
                     >
-                      Cancel
+                      {fa.project.cancel}
                     </Button>
                   </div>
                 </form>
@@ -2956,7 +2967,7 @@ function ConversationSidebar({
                     onClick={startRename}
                   >
                     <Pencil aria-hidden="true" className="size-4" />
-                    Rename
+                    {fa.project.rename}
                   </button>
                   <button
                     type="button"
@@ -2982,8 +2993,8 @@ function ConversationSidebar({
                       <Sparkles aria-hidden="true" className="size-4" />
                     )}
                     {isContextMenuGeneratingName
-                      ? "Generating name..."
-                      : "Generate name"}
+                      ? fa.project.generatingName
+                      : fa.project.generateName}
                   </button>
                 </>
               )}
@@ -3022,8 +3033,8 @@ function CollapsedProjectSidebar({
         variant="ghost"
         size="icon-sm"
         className="rounded-md text-muted-foreground"
-        aria-label="Show projects sidebar"
-        title="Show projects sidebar"
+        aria-label={fa.project.showSidebar}
+        title={fa.project.showSidebar}
         onClick={onShowSidebar}
       >
         <PanelLeftOpen aria-hidden="true" />
@@ -3057,7 +3068,7 @@ function ProjectChatHeader({
           variant="ghost"
           size="icon"
           className="size-10 shrink-0 rounded-lg text-muted-foreground md:hidden"
-          aria-label="Open projects"
+          aria-label={fa.project.openProjects}
           onClick={onOpenProjects}
         >
           <PanelLeftOpen aria-hidden className="size-5" />
@@ -3080,7 +3091,7 @@ function ProjectChatHeader({
           onClick={onOpenPreview}
         >
           <Browser data-icon="inline-start" className="size-4" />
-          Preview
+          {fa.chat.openPreview}
         </Button>
       ) : null}
       <Popover>
@@ -3091,8 +3102,8 @@ function ProjectChatHeader({
               variant="ghost"
               size="icon-sm"
               className="rounded-md text-muted-foreground"
-              aria-label="Show project information"
-              title="Show project information"
+              aria-label={fa.project.info}
+              title={fa.project.info}
             />
           }
         >
@@ -3100,27 +3111,40 @@ function ProjectChatHeader({
         </PopoverTrigger>
         <PopoverContent align="end" className="w-80 rounded-md">
           <PopoverHeader>
-            <PopoverTitle>Project info</PopoverTitle>
-            <PopoverDescription>
-              Cloud sandbox preview and workspace metadata.
-            </PopoverDescription>
+            <PopoverTitle>{fa.project.info}</PopoverTitle>
+            <PopoverDescription>{fa.project.infoDescription}</PopoverDescription>
           </PopoverHeader>
           <dl className="flex flex-col gap-2 text-xs">
             {session ? (
               <>
-                <ProjectInfoRow label="Path" value={session.projectPath} mono />
-                <ProjectInfoRow label="Preview" value={session.previewUrl} mono />
-                <ProjectInfoRow label="Session" value={session.id} mono />
+                <ProjectInfoRow
+                  label={fa.project.path}
+                  value={session.projectPath}
+                  mono
+                />
+                <ProjectInfoRow
+                  label={fa.project.preview}
+                  value={session.previewUrl}
+                  mono
+                />
+                <ProjectInfoRow
+                  label={fa.project.session}
+                  value={session.id}
+                  mono
+                />
               </>
             ) : (
-              <ProjectInfoRow label="Preview" value="Provisioning…" />
+              <ProjectInfoRow
+                label={fa.project.preview}
+                value={fa.project.provisioning}
+              />
             )}
             <ProjectInfoRow
-              label="Created"
+              label={fa.project.created}
               value={formatMetadataTimestamp(conversation.createdAt)}
             />
             <ProjectInfoRow
-              label="Updated"
+              label={fa.project.updated}
               value={formatMetadataTimestamp(conversation.updatedAt)}
             />
           </dl>
@@ -3156,16 +3180,16 @@ function ProjectInfoRow({
 
 function formatHeaderUpdatedAt(updatedAt: number) {
   if (!isFiniteTimestamp(updatedAt)) {
-    return "Updated recently"
+    return fa.time.updatedRecently
   }
 
   const elapsedMs = Date.now() - updatedAt
   if (elapsedMs < 0 || elapsedMs < 60_000) {
-    return "Updated just now"
+    return fa.time.updatedJustNow
   }
 
   const elapsedSeconds = Math.round(elapsedMs / 1000)
-  const relativeTimeFormat = new Intl.RelativeTimeFormat("en", {
+  const relativeTimeFormat = new Intl.RelativeTimeFormat("fa-IR", {
     numeric: "auto",
     style: "narrow",
   })
@@ -3183,15 +3207,15 @@ function formatHeaderUpdatedAt(updatedAt: number) {
     units[units.length - 1]
   const value = -Math.round(elapsedSeconds / secondsPerUnit)
 
-  return `Updated ${relativeTimeFormat.format(value, unit)}`
+  return `${fa.project.updated} ${relativeTimeFormat.format(value, unit)}`
 }
 
 function formatMetadataTimestamp(value: number) {
   if (!isFiniteTimestamp(value)) {
-    return "Unknown"
+    return fa.time.unknown
   }
 
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat("fa-IR", {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value))
@@ -3230,14 +3254,12 @@ function ModelConfigPopover({
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 rounded-md">
         <PopoverHeader>
-          <PopoverTitle>Model</PopoverTitle>
-          <PopoverDescription>
-            Choose a base model and configure its available attributes.
-          </PopoverDescription>
+          <PopoverTitle>{fa.model.title}</PopoverTitle>
+          <PopoverDescription>{fa.model.description}</PopoverDescription>
         </PopoverHeader>
         <FieldGroup className="gap-4">
           <Field>
-            <FieldLabel>Base model</FieldLabel>
+            <FieldLabel>{fa.model.base}</FieldLabel>
             <Select
               items={models.map((option) => ({
                 label: option.label,
@@ -3250,7 +3272,7 @@ function ModelConfigPopover({
                 }
               }}
             >
-              <SelectTrigger aria-label="Base model" className="rounded-md">
+              <SelectTrigger aria-label={fa.model.base} className="rounded-md">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="start" className="rounded-md">
@@ -3446,17 +3468,6 @@ function parseServerSentEvent(chunk: string) {
     event: eventLine.slice("event: ".length),
     data: JSON.parse(dataLines.join("\n")) as unknown,
   }
-}
-
-function getFriendlyErrorMessage(error: unknown) {
-  const message =
-    error instanceof Error ? error.message : "The agent request failed."
-
-  if (message.toLowerCase().includes("already has active run")) {
-    return "Cursor is still working on the previous request. Wait a moment and try again."
-  }
-
-  return message
 }
 
 function sanitizeModelCatalog(models: unknown[]) {
@@ -3737,52 +3748,6 @@ function isUnknownSessionError(error: unknown) {
   return /unknown app builder session/i.test(error.message)
 }
 
-function getFriendlySessionError(message: string) {
-  if (
-    message.includes("Timed out waiting for Next.js") ||
-    message.toLowerCase().includes("timeout")
-  ) {
-    return [
-      "Sandbox preview timed out while npm install or Vite was starting.",
-      "Wait a few minutes and use Retry setup once.",
-    ].join(" ")
-  }
-
-  if (
-    message.includes("extend timeout") ||
-    message.includes("maximum execution timeout")
-  ) {
-    return [
-      "Vercel Sandbox session limit was misconfigured.",
-      "Restart npm run dev and try again; run npm run sandboxes:cleanup if needed.",
-    ].join(" ")
-  }
-
-  if (
-    message.includes("Concurrency limit exceeded") ||
-    message.includes("429")
-  ) {
-    return [
-      "Vercel Sandbox concurrency limit reached (10 running VMs on Hobby).",
-      "Stop old sandboxes in the Vercel dashboard, delete extra projects in the sidebar, then use Retry setup.",
-    ].join(" ")
-  }
-
-  if (
-    message.includes("Snapshots Storage") ||
-    message.includes("payment_required") ||
-    message.includes("Status code 402")
-  ) {
-    return [
-      "Vercel Sandbox snapshot storage on your Hobby team is full.",
-      "In the Vercel dashboard open Sandboxes, delete old app-builder sandboxes (and snapshots), or run npm run sandboxes:cleanup locally.",
-      "Then use Retry setup. To avoid filling snapshots on Hobby, set APP_BUILDER_SANDBOX_PERSISTENT=false in Production (slower cold starts).",
-    ].join(" ")
-  }
-
-  return message
-}
-
 function getConversationById(
   conversations: Conversation[],
   conversationId: string
@@ -3881,26 +3846,15 @@ function createConversationId() {
 }
 
 function getNextConversationTitle(conversations: Conversation[]) {
-  const nextNumber =
-    conversations.reduce((highest, conversation) => {
-      const [, number] = conversation.title.match(/^Project (\d+)$/) ?? []
-      return number ? Math.max(highest, Number(number)) : highest
-    }, 0) + 1
-
-  return `Project ${nextNumber}`
+  return defaultProjectTitle(
+    getNextProjectNumber(
+      conversations.map((conversation) => conversation.title)
+    )
+  )
 }
 
 function shouldGenerateProjectName(conversation: Conversation) {
   return isPlaceholderProjectTitle(conversation.title)
-}
-
-function isPlaceholderProjectTitle(title: string) {
-  const normalized = title.trim()
-  return (
-    !normalized ||
-    normalized === "Untitled project" ||
-    /^Project \d+$/i.test(normalized)
-  )
 }
 
 function sanitizeProjectTitle(value: string) {
@@ -3919,23 +3873,26 @@ function sanitizeProjectTitle(value: string) {
 
 function getProjectNameErrorMessage(error: unknown) {
   if (error instanceof Error && error.name === "AbortError") {
-    return "Project name generation timed out. Try again."
+    return fa.errors.projectNameTimeout
   }
 
   const message = error instanceof Error ? error.message.trim() : ""
   if (!message) {
-    return "Could not generate a project name."
+    return fa.errors.projectNameFailed
   }
 
-  if (/project name generation timed out/i.test(message)) {
+  if (/project name generation timed out|زمان تولید نام پروژه/i.test(message)) {
     return message
   }
 
-  if (/^could not generate (a )?project name\.?$/i.test(message)) {
-    return "Could not generate a project name."
+  if (
+    /^could not generate (a )?project name\.?$/i.test(message) ||
+    message === fa.errors.projectNameFailed
+  ) {
+    return fa.errors.projectNameFailed
   }
 
-  return `Could not generate a project name. ${message}`
+  return fa.errors.projectNameFailedWith(message)
 }
 
 function getConversationPreview(conversation: Conversation) {
@@ -3948,7 +3905,9 @@ function getConversationPreview(conversation: Conversation) {
     return preview.length > 48 ? `${preview.slice(0, 45)}...` : preview
   }
 
-  return conversation.session ? "Preview ready" : "No preview yet"
+  return conversation.session
+    ? fa.project.previewReady
+    : fa.project.noPreviewYet
 }
 
 function getProjectNameMessages(conversation: Conversation): ProjectNameMessage[] {
