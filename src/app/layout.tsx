@@ -1,5 +1,6 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import { faIR } from "@clerk/localizations/fa-IR";
+import { dark } from "@clerk/ui/themes";
 import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Vazirmatn } from "next/font/google";
 import "./globals.css";
@@ -26,10 +27,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
-  ],
+  themeColor: "#171717",
+  colorScheme: "dark",
 };
 
 const clerkPublishableKey =
@@ -44,7 +43,7 @@ export default function RootLayout({
     <html
       lang="fa"
       dir="rtl"
-      className={`${vazirmatn.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${vazirmatn.variable} ${geistMono.variable} dark h-full antialiased`}
     >
       <body className="flex min-h-full min-h-dvh flex-col overflow-x-hidden overscroll-none font-sans">
         {children}
@@ -57,7 +56,11 @@ export default function RootLayout({
   }
 
   return (
-    <ClerkProvider publishableKey={clerkPublishableKey} localization={faIR}>
+    <ClerkProvider
+      publishableKey={clerkPublishableKey}
+      localization={faIR}
+      appearance={{ theme: dark }}
+    >
       {content}
     </ClerkProvider>
   );
