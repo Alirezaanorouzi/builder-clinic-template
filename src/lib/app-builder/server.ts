@@ -12,7 +12,11 @@ import {
 } from "@cursor/sdk"
 
 import { requireMultiUserMode } from "@/lib/auth/config"
-import { getProjectByBuilderSessionId } from "@/lib/db/projects"
+import {
+  getProjectByBuilderSessionId,
+  updateProject,
+} from "@/lib/db/projects"
+import { getPreviewRuntimeKind } from "./preview/config"
 
 import { isRecognizedCursorApiKey, normalizeCursorApiKey } from "./api-key"
 import { provisionPreviewRuntime } from "./preview"
@@ -147,6 +151,8 @@ const fallbackModels: ModelCatalogItem[] = [
 ]
 
 const sessions = getBuilderSessionRegistry<BuilderSession>()
+
+const projectProvisionWork = new Map<string, Promise<void>>()
 const attachSessionInFlight = new Map<string, Promise<void>>()
 
 export async function readPersistedCursorApiKey(): Promise<string | null> {
@@ -200,11 +206,47 @@ export async function clearPersistedCursorApiKey() {
   await writePersistedSettings(settings)
 }
 
-export async function createSession(
+export function isBuilderSessionSandboxReady(session: BuilderSession): boolean {
+  return Boolean(
+    session.previewHandle?.agentRunnerUrl &&
+      session.previewUrl &&
+      session.previewHandle.agentRunnerSecret
+  )
+}
+
+export function toPublicBuilderSession(session: BuilderSession): PublicSession {
+  return toPublicSession(session)
+}
+
+/**
+ * Starts sandbox provisioning without awaiting it. Models/user resolve quickly so the
+ * HTTP response can return before the 300s serverless cap (provision completes in after()).
+ */
+export async function beginBuilderSession(
   apiKey: string,
-  options?: { projectId?: string; agentRunnerSecret?: string | null }
-): Promise<PublicSession> {
-  const id = randomUUID()
+  options?: {
+    projectId?: string
+    agentRunnerSecret?: string | null
+    sessionId?: string
+  }
+): Promise<BuilderSession> {
+  const id = options?.sessionId ?? randomUUID()
+  const existing = sessions.get(id)
+  if (existing) {
+    if (options?.agentRunnerSecret && !existing.agentRunnerSecret) {
+      existing.agentRunnerSecret = options.agentRunnerSecret
+    }
+    if (!existing.user || existing.models === fallbackModels) {
+      const [models, user] = await Promise.all([
+        listModels(apiKey),
+        getCurrentUser(apiKey),
+      ])
+      existing.models = models
+      existing.user = user
+    }
+    return existing
+  }
+
   const projectPath = options?.projectId
     ? path.join(workspaceRoot, "projects", options.projectId, "app")
     : path.join(workspaceRoot, id, "app")
@@ -232,14 +274,80 @@ export async function createSession(
     throw error
   })
   session.ready = readyPromise
-  const [models, user] = await Promise.all([
-    modelsPromise,
-    userPromise,
-    readyPromise,
-  ])
+  const [models, user] = await Promise.all([modelsPromise, userPromise])
   session.models = models
   session.user = user
 
+  return session
+}
+
+export async function createSession(
+  apiKey: string,
+  options?: { projectId?: string; agentRunnerSecret?: string | null }
+): Promise<PublicSession> {
+  const session = await beginBuilderSession(apiKey, options)
+  await session.ready
+  return toPublicSession(session)
+}
+
+export type ProjectProvisionTarget = {
+  projectId: string
+  userId: string
+}
+
+export function scheduleProjectProvisionCompletion(
+  target: ProjectProvisionTarget,
+  session: BuilderSession
+): Promise<void> {
+  const inflight = projectProvisionWork.get(target.projectId)
+  if (inflight) {
+    return inflight
+  }
+
+  const work = (async () => {
+    try {
+      await session.ready
+      const previewRuntime = getPreviewRuntimeKind()
+      const agentRunnerSecret = getSessionAgentRunnerSecret(session.id)
+      await updateProject(target.projectId, target.userId, {
+        builderSessionId: session.id,
+        previewUrl: session.previewUrl,
+        previewRuntime,
+        provisionStatus: "ready",
+        provisionError: null,
+        ...(agentRunnerSecret ? { agentRunnerSecret } : {}),
+      })
+    } catch (error) {
+      const message = getErrorMessage(error)
+      console.error(
+        "[provision:background]",
+        target.projectId,
+        message,
+        error
+      )
+      await updateProject(target.projectId, target.userId, {
+        provisionStatus: "error",
+        provisionError: message,
+      })
+    }
+  })()
+
+  projectProvisionWork.set(target.projectId, work)
+  work.finally(() => {
+    projectProvisionWork.delete(target.projectId)
+  })
+
+  return work
+}
+
+export async function finalizeProjectProvisionIfReady(
+  target: ProjectProvisionTarget,
+  session: BuilderSession
+): Promise<PublicSession | null> {
+  if (!isBuilderSessionSandboxReady(session)) {
+    return null
+  }
+  await scheduleProjectProvisionCompletion(target, session)
   return toPublicSession(session)
 }
 

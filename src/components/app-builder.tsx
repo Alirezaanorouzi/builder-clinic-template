@@ -3771,10 +3771,10 @@ function remoteProjectToConversation(
   const createdAt = Date.parse(project.createdAt)
   const updatedAt = Date.parse(project.updatedAt)
   const session =
-    project.builderSessionId && project.previewUrl
+    project.builderSessionId && project.provisionStatus === "ready"
       ? ({
           id: project.builderSessionId,
-          previewUrl: project.previewUrl,
+          previewUrl: project.previewUrl ?? "",
           projectPath: "",
           previewRuntime: project.previewRuntime ?? "sandbox",
           models: fallbackModels,
