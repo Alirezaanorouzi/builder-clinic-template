@@ -47,7 +47,7 @@ export type PublicSession = {
   id: string
   previewUrl: string
   projectPath: string
-  previewRuntime: "local" | "sandbox"
+  previewRuntime: "sandbox"
   models: ModelCatalogItem[]
   user: PublicUser | null
 }
@@ -682,7 +682,7 @@ function toPublicSession(session: BuilderSession): PublicSession {
     id: session.id,
     previewUrl: session.previewUrl,
     projectPath: session.projectPath,
-    previewRuntime: session.previewHandle?.kind ?? "local",
+    previewRuntime: session.previewHandle?.kind ?? "sandbox",
     models: session.models,
     user: session.user,
   }

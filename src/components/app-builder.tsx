@@ -12,7 +12,6 @@ import {
 } from "react"
 import {
   createRemoteProject,
-  fetchAppBuilderConfig,
   fetchProjectMessages,
   fetchProjects,
   patchRemoteProject,
@@ -22,14 +21,11 @@ import {
   type RemoteProject,
 } from "@/lib/app-builder/multi-user-api"
 import {
-  ArrowRightIcon as ArrowRight,
   BrainIcon as Brain,
   CaretDownIcon as CaretDown,
-  CubeIcon as Cube,
   FileTextIcon as FileText,
   FilesIcon as Files,
   FlaskIcon as FlaskConical,
-  GearIcon as Settings,
   HammerIcon as Hammer,
   InfoIcon as Info,
   ListChecksIcon as ListTodo,
@@ -76,18 +72,13 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import {
-  UNRECOGNIZED_CURSOR_API_KEY_MESSAGE,
-  isRecognizedCursorApiKey,
-  normalizeCursorApiKey,
-} from "@/lib/app-builder/api-key"
 import { cn } from "@/lib/utils"
 
 type Session = {
   id: string
   previewUrl: string
   projectPath: string
-  previewRuntime?: "local" | "sandbox"
+  previewRuntime?: "sandbox"
   models: ModelCatalogItem[]
   user: CurrentUser | null
 }
@@ -151,12 +142,6 @@ type Conversation = {
   session: Session | null
 }
 
-type PersistedAppState = {
-  version: 2
-  activeConversationId: string
-  conversations: Conversation[]
-}
-
 type ConversationRuntimeState = {
   isRunning: boolean
   isCreatingSession: boolean
@@ -215,13 +200,9 @@ type ProjectContextMenuState = {
   y: number
 }
 
-const SAVED_CURSOR_API_KEY = "app-builder.cursor-api-key"
-const SAVED_CHAT_STATE = "app-builder.chat-state"
 const CHAT_WIDTH_DEFAULT = 400
 const GROUPED_FILE_TARGET_LIMIT = 4
 const PROJECT_NAME_TIMEOUT_MS = 15_000
-const SAVED_API_KEY_READY_MESSAGE =
-  "Saved Cursor API key updated. The local preview is ready."
 const fallbackModels: ModelCatalogItem[] = [
   {
     id: "auto",
@@ -238,37 +219,16 @@ const fallbackModels: ModelCatalogItem[] = [
 ]
 const fallbackModelSelection = encodeModelSelection({ id: fallbackModels[0].id })
 
-type AppBuilderProps = {
-  multiUserEnabled?: boolean
-}
-
-export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
+export function AppBuilder() {
   const { isLoaded: isClerkLoaded, isSignedIn } = useAuth()
-  const [initialAppState] = useState(() =>
-    multiUserEnabled ? null : createInitialAppState()
-  )
-  const multiUserEnabledRef = useRef(multiUserEnabled)
-  const [hideApiKeySettings, setHideApiKeySettings] = useState(multiUserEnabled)
-  const [conversations, setConversations] = useState<Conversation[]>(() =>
-    multiUserEnabled ? [] : (initialAppState?.conversations ?? [])
-  )
-  const [activeConversationId, setActiveConversationId] = useState(() =>
-    multiUserEnabled ? "" : (initialAppState?.activeConversationId ?? "")
-  )
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [activeConversationId, setActiveConversationId] = useState("")
   const [hasHydratedChatState, setHasHydratedChatState] = useState(false)
   const [isPreviewFrameLoading, setIsPreviewFrameLoading] = useState(true)
-  const [apiKey, setApiKey] = useState("")
-  const [hasSavedApiKey, setHasSavedApiKey] = useState(multiUserEnabled)
   const [runtimeByConversationId, setRuntimeByConversationId] = useState<
     Record<string, ConversationRuntimeState>
-  >(() => {
-    const id = initialAppState?.activeConversationId
-    return id ? { [id]: createRuntimeState() } : {}
-  })
+  >({})
   const [isProjectSidebarOpen, setIsProjectSidebarOpen] = useState(true)
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false)
-  const [isApiKeySettingsOpen, setIsApiKeySettingsOpen] = useState(false)
-  const [isApiKeyClearConfirming, setIsApiKeyClearConfirming] = useState(false)
   const [titleGenerationConversationIds, setTitleGenerationConversationIds] =
     useState(() => new Set<string>())
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -311,33 +271,6 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
   }, [conversations])
 
   useEffect(() => {
-    multiUserEnabledRef.current = multiUserEnabled
-
-    if (!multiUserEnabled) {
-      const persisted = readPersistedAppState()
-      conversationsRef.current = persisted.conversations
-      setConversations(persisted.conversations)
-      setActiveConversationId(persisted.activeConversationId)
-      setRuntimeByConversationId((current) => {
-        const next = { ...current }
-        for (const conversation of persisted.conversations) {
-          if (!next[conversation.id]) {
-            next[conversation.id] = createRuntimeState()
-          }
-        }
-        return next
-      })
-
-      const savedKey = getSavedCursorApiKey()
-      const hasValidSavedApiKey = Boolean(
-        savedKey && isRecognizedCursorApiKey(savedKey)
-      )
-      setHasSavedApiKey(hasValidSavedApiKey)
-      setIsOnboardingOpen(!hasValidSavedApiKey)
-      setHasHydratedChatState(true)
-      return
-    }
-
     if (!isClerkLoaded) {
       return
     }
@@ -350,17 +283,6 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
     let cancelled = false
 
     void (async () => {
-      const config = await fetchAppBuilderConfig()
-      if (cancelled) {
-        return
-      }
-
-      setHideApiKeySettings(
-        multiUserEnabled && !config.allowUserApiKeys
-      )
-      setHasSavedApiKey(true)
-      setIsOnboardingOpen(false)
-
       try {
         let remoteProjects = await fetchProjects()
         if (remoteProjects.length === 0) {
@@ -412,7 +334,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isClerkLoaded, isSignedIn, multiUserEnabled])
+  }, [isClerkLoaded, isSignedIn])
 
   useEffect(() => {
     setIsPreviewFrameLoading(true)
@@ -423,7 +345,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
       return
     }
 
-    if (multiUserEnabledRef.current && conversationsRef.current.length === 0) {
+    if (conversationsRef.current.length === 0) {
       return
     }
 
@@ -445,7 +367,6 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
         conversation.session &&
         restoredConversationIdsRef.current.has(conversation.id)
       ) {
-        setIsOnboardingOpen(false)
         setConversationRuntime(conversation.id, (current) => ({
           ...current,
           isCursorTyping: false,
@@ -455,23 +376,9 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
         return
       }
 
-      const savedApiKey = getSavedCursorApiKey()
       const restoredSessionId = conversation.session?.id
-      const hasValidSavedApiKey = Boolean(
-        savedApiKey && isRecognizedCursorApiKey(savedApiKey)
-      )
-      const validSavedApiKey = hasValidSavedApiKey ? savedApiKey : undefined
 
-      if (savedApiKey && !hasValidSavedApiKey) {
-        window.localStorage.removeItem(SAVED_CURSOR_API_KEY)
-      }
-
-      setHasSavedApiKey(hasValidSavedApiKey)
-
-      const startSession = async (
-        sessionId?: string,
-        keyForRequest?: string
-      ) => {
+      const startSession = async (sessionId?: string) => {
         if (sessionStartInFlightRef.current) {
           return
         }
@@ -485,17 +392,9 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
         }))
 
         try {
-          const data = multiUserEnabledRef.current
-            ? await provisionRemoteProject(
-                conversation.id,
-                keyForRequest
-              ).then((result) => result.session as Session)
-            : await requestSession(keyForRequest, sessionId, {
-                persistApiKey: Boolean(keyForRequest && hasValidSavedApiKey),
-                projectId: multiUserEnabledRef.current
-                  ? conversation.id
-                  : undefined,
-              })
+          const data = await provisionRemoteProject(conversation.id).then(
+            (result) => result.session as Session
+          )
 
           if (cancelled) {
             return
@@ -503,8 +402,6 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
 
           restoredConversationIdsRef.current.add(conversation.id)
           applySession(conversation.id, data)
-          setIsOnboardingOpen(false)
-          setHasSavedApiKey(true)
           setConversationRuntime(conversation.id, (current) => ({
             ...current,
             isCreatingSession: false,
@@ -524,19 +421,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
               ...current,
               session: null,
             }))
-            await startSession(undefined, keyForRequest)
-            return
-          }
-
-          if (isMissingApiKeyError(error) && !multiUserEnabledRef.current) {
-            setHasSavedApiKey(false)
-            setIsOnboardingOpen(true)
-            setConversationRuntime(conversation.id, (current) => ({
-              ...current,
-              isCreatingSession: false,
-              isCursorTyping: false,
-              sessionError: null,
-            }))
+            await startSession(undefined)
             return
           }
 
@@ -554,10 +439,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
         }
       }
 
-      const keyForRequest = multiUserEnabledRef.current
-        ? undefined
-        : validSavedApiKey
-      await startSession(restoredSessionId, keyForRequest)
+      await startSession(restoredSessionId)
     }, 250)
 
     return () => {
@@ -574,22 +456,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
   }, [activeConversation.id, messages])
 
   useEffect(() => {
-    if (multiUserEnabledRef.current) {
-      return
-    }
-
-    writePersistedAppState({
-      version: 2,
-      activeConversationId,
-      conversations: conversations.map((conversation) => ({
-        ...conversation,
-        messages: compactActivityMessages(conversation.messages),
-      })),
-    })
-  }, [activeConversationId, conversations])
-
-  useEffect(() => {
-    if (!multiUserEnabled || !hasHydratedChatState) {
+    if (!hasHydratedChatState) {
       return
     }
 
@@ -603,7 +470,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
     }, 900)
 
     return () => window.clearTimeout(timeout)
-  }, [conversations, hasHydratedChatState, multiUserEnabled])
+  }, [conversations, hasHydratedChatState])
 
   useEffect(() => {
     for (const conversation of conversations) {
@@ -637,7 +504,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
     () => Boolean(session && input.trim() && !isRunning),
     [input, isRunning, session]
   )
-  const showChatComposer = Boolean(session) || multiUserEnabled
+  const showChatComposer = true
   const chatInputPlaceholder = !session
     ? isCreatingSession
       ? "Setting up preview (first run can take several minutes)…"
@@ -724,60 +591,27 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
   }
 
   function createConversation() {
-    if (!multiUserEnabled && !hasSavedApiKey) {
-      openOnboarding()
-      return
-    }
-
-    if (multiUserEnabled) {
-      void (async () => {
-        try {
-          const project = await createRemoteProject(
-            getNextConversationTitle(conversations)
-          )
-          const conversation = remoteProjectToConversation(project, [])
-          setConversations((current) => [conversation, ...current])
-          setRuntimeByConversationId((current) => ({
-            ...current,
-            [conversation.id]: createRuntimeState(),
-          }))
-          setActiveConversationId(conversation.id)
-        } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "Failed to create project."
-          setConversationRuntime(activeConversationId, (current) => ({
-            ...current,
-            sessionError: message,
-          }))
-        }
-      })()
-      return
-    }
-
-    const conversation = createEmptyConversation(
-      getNextConversationTitle(conversations)
-    )
-    setConversations((current) => [conversation, ...current])
-    setRuntimeByConversationId((current) => ({
-      ...current,
-      [conversation.id]: createRuntimeState(),
-    }))
-    setActiveConversationId(conversation.id)
-    setApiKey("")
-  }
-
-  function openOnboarding() {
-    if (multiUserEnabled) {
-      return
-    }
-    setApiKey("")
-    setIsOnboardingOpen(true)
-    setConversationRuntime(activeConversation.id, (current) => ({
-      ...current,
-      sessionError: null,
-    }))
+    void (async () => {
+      try {
+        const project = await createRemoteProject(
+          getNextConversationTitle(conversations)
+        )
+        const conversation = remoteProjectToConversation(project, [])
+        setConversations((current) => [conversation, ...current])
+        setRuntimeByConversationId((current) => ({
+          ...current,
+          [conversation.id]: createRuntimeState(),
+        }))
+        setActiveConversationId(conversation.id)
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to create project."
+        setConversationRuntime(activeConversationId, (current) => ({
+          ...current,
+          sessionError: message,
+        }))
+      }
+    })()
   }
 
   function renameConversation(conversationId: string, title: string) {
@@ -792,20 +626,9 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
       updatedAt: Date.now(),
     }))
 
-    if (multiUserEnabled) {
-      void patchRemoteProject(conversationId, { title: nextTitle }).catch(
-        () => undefined
-      )
-    }
-  }
-
-  function setApiKeySettingsOpen(open: boolean) {
-    setIsApiKeySettingsOpen(open)
-    setIsApiKeyClearConfirming(false)
-
-    if (open) {
-      setApiKey("")
-    }
+    void patchRemoteProject(conversationId, { title: nextTitle }).catch(
+      () => undefined
+    )
   }
 
   async function requestGeneratedConversationTitle(
@@ -942,147 +765,6 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
     )
   }
 
-  async function createSessionFromApiKey(
-    rawApiKey: string,
-    options: {
-      openOnboardingOnError?: boolean
-      persist: boolean
-      readyMessage?: string
-    },
-    conversationId = activeConversation.id
-  ) {
-    if (!rawApiKey.trim() || isCreatingSession) {
-      return false
-    }
-
-    const trimmedApiKey = normalizeCursorApiKey(rawApiKey)
-    const restoredSessionId = getConversationById(
-      conversationsRef.current,
-      conversationId
-    )?.session?.id
-
-    if (!isRecognizedCursorApiKey(trimmedApiKey)) {
-      setConversationRuntime(conversationId, (current) => ({
-        ...current,
-        sessionError: UNRECOGNIZED_CURSOR_API_KEY_MESSAGE,
-      }))
-      return false
-    }
-
-    setConversationRuntime(conversationId, (current) => ({
-      ...current,
-      isCreatingSession: true,
-      isCursorTyping: false,
-      sessionError: null,
-    }))
-
-    try {
-      const data = await requestSession(trimmedApiKey, restoredSessionId, {
-        persistApiKey: options.persist,
-      })
-
-      restoredConversationIdsRef.current.add(conversationId)
-      applySession(conversationId, data)
-      if (options.persist) {
-        window.localStorage.setItem(SAVED_CURSOR_API_KEY, trimmedApiKey)
-      }
-      setHasSavedApiKey(true)
-      setApiKey("")
-      setConversationRuntime(conversationId, (current) => ({
-        ...current,
-        isCreatingSession: false,
-        isCursorTyping: false,
-        sessionError: null,
-      }))
-      setIsOnboardingOpen(false)
-      const readyMessage = options.readyMessage
-      if (readyMessage) {
-        setConversationMessages(conversationId, (current) =>
-          appendReadyMessage(current, readyMessage)
-        )
-      }
-      return true
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Could not start preview."
-      const shouldOpenOnboarding = options.openOnboardingOnError ?? true
-      setConversationRuntime(conversationId, (current) => ({
-        ...current,
-        isCreatingSession: false,
-        isCursorTyping: false,
-        sessionError: message,
-      }))
-      if (shouldOpenOnboarding) {
-        setIsOnboardingOpen(true)
-      }
-      return false
-    } finally {
-      setConversationRuntime(conversationId, (current) => ({
-        ...current,
-        isCreatingSession: false,
-      }))
-    }
-  }
-
-  async function submitApiKey(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    if (!apiKey.trim() || isCreatingSession) {
-      return
-    }
-
-    const didStart = await createSessionFromApiKey(apiKey, {
-      persist: true,
-    })
-
-    if (didStart) {
-      setIsOnboardingOpen(false)
-    }
-  }
-
-  async function submitApiKeySettings(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    if (!apiKey.trim() || isCreatingSession) {
-      return
-    }
-
-    const didSave = await createSessionFromApiKey(apiKey, {
-      openOnboardingOnError: !activeConversation.session,
-      persist: true,
-      readyMessage: SAVED_API_KEY_READY_MESSAGE,
-    })
-
-    if (didSave) {
-      setIsOnboardingOpen(false)
-      setApiKeySettingsOpen(false)
-    }
-  }
-
-  async function clearSavedApiKey() {
-    window.localStorage.removeItem(SAVED_CURSOR_API_KEY)
-    await fetch("/api/settings/api-key", { method: "DELETE" }).catch(() => {})
-    setHasSavedApiKey(false)
-    setApiKey("")
-    if (!activeConversation.session) {
-      setIsOnboardingOpen(true)
-    }
-    setConversationRuntime(activeConversation.id, (current) => ({
-      ...current,
-      sessionError: null,
-    }))
-  }
-
-  async function confirmClearSavedApiKey() {
-    if (!isApiKeyClearConfirming) {
-      setIsApiKeyClearConfirming(true)
-      return
-    }
-
-    await clearSavedApiKey()
-    setIsApiKeyClearConfirming(false)
-  }
-
   async function retryMultiUserProvision() {
     const conversationId = activeConversation.id
 
@@ -1114,84 +796,6 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
         isCreatingSession: false,
         isCursorTyping: false,
         sessionError: message,
-      }))
-    }
-  }
-
-  async function retrySavedApiKey() {
-    if (multiUserEnabledRef.current) {
-      await retryMultiUserProvision()
-      return
-    }
-
-    const conversationId = activeConversation.id
-    const restoredSessionId = activeConversation.session?.id
-    const savedApiKey = getSavedCursorApiKey()
-    const validSavedApiKey =
-      savedApiKey && isRecognizedCursorApiKey(savedApiKey)
-        ? savedApiKey
-        : undefined
-
-    if (savedApiKey && !validSavedApiKey) {
-      window.localStorage.removeItem(SAVED_CURSOR_API_KEY)
-    }
-
-    if (!validSavedApiKey) {
-      setHasSavedApiKey(false)
-      setIsOnboardingOpen(true)
-      setConversationRuntime(conversationId, (current) => ({
-        ...current,
-        isCreatingSession: false,
-        isCursorTyping: false,
-        sessionError: null,
-      }))
-      return
-    }
-
-    setConversationRuntime(conversationId, (current) => ({
-      ...current,
-      isCreatingSession: true,
-      isCursorTyping: false,
-      sessionError: null,
-    }))
-
-    try {
-      const data = await requestSession(validSavedApiKey, restoredSessionId, {
-        persistApiKey: Boolean(validSavedApiKey),
-      })
-      restoredConversationIdsRef.current.add(conversationId)
-      applySession(conversationId, data)
-      setHasSavedApiKey(true)
-      setConversationRuntime(conversationId, (current) => ({
-        ...current,
-        isCreatingSession: false,
-        isCursorTyping: false,
-        sessionError: null,
-      }))
-    } catch (error) {
-          if (isMissingApiKeyError(error) && !multiUserEnabledRef.current) {
-            setHasSavedApiKey(false)
-            setIsOnboardingOpen(true)
-        setConversationRuntime(conversationId, (current) => ({
-          ...current,
-          sessionError: null,
-        }))
-      } else {
-        const message =
-          error instanceof Error ? error.message : "Could not start preview."
-        setConversationRuntime(conversationId, (current) => ({
-          ...current,
-          sessionError: message,
-        }))
-      }
-      setConversationRuntime(conversationId, (current) => ({
-        ...current,
-        isCursorTyping: false,
-      }))
-    } finally {
-      setConversationRuntime(conversationId, (current) => ({
-        ...current,
-        isCreatingSession: false,
       }))
     }
   }
@@ -1543,43 +1147,19 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
   }
 
   return (
-    <main
-        className={cn(
-          "flex h-screen gap-0 bg-background p-0",
-          session || multiUserEnabled ? "" : "items-stretch"
-        )}
-    >
+    <main className="flex h-screen gap-0 bg-background p-0">
       {isProjectSidebarOpen ? (
         <ConversationSidebar
           conversations={sidebarConversations}
           activeConversationId={activeConversation.id}
-          apiKey={apiKey}
-          hideApiKeySettings={hideApiKeySettings}
-          multiUserEnabled={multiUserEnabled}
-          hasSavedApiKey={hasSavedApiKey}
-          isApiKeyClearConfirming={isApiKeyClearConfirming}
-          isApiKeySettingsOpen={isApiKeySettingsOpen}
           isCreatingSession={isCreatingSession}
           titleGenerationConversationIds={titleGenerationConversationIds}
-          sessionError={sessionError}
           user={session?.user ?? null}
-          onApiKeyChange={setApiKey}
-          onApiKeySettingsOpenChange={setApiKeySettingsOpen}
-          onClearSavedApiKey={confirmClearSavedApiKey}
           onCreateConversation={createConversation}
           onGenerateName={generateConversationTitle}
-          onHideSidebar={() => {
-            setIsProjectSidebarOpen(false)
-            setApiKeySettingsOpen(false)
-          }}
-          onSelectConversation={(conversationId) => {
-            setActiveConversationId(conversationId)
-            setApiKey("")
-            setIsApiKeyClearConfirming(false)
-          }}
+          onHideSidebar={() => setIsProjectSidebarOpen(false)}
+          onSelectConversation={setActiveConversationId}
           onRenameConversation={renameConversation}
-          onRequireApiKey={openOnboarding}
-          onSubmitApiKey={submitApiKeySettings}
         />
       ) : (
         <CollapsedProjectSidebar
@@ -1587,25 +1167,16 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
         />
       )}
       <Card
-        className={cn(
-          "flex h-full gap-0 overflow-hidden rounded-none border-y-0 border-l-0 border-r-0 py-0 shadow-none ring-0",
-          session || multiUserEnabled
-            ? "shrink-0 border-r border-border/80"
-            : "min-w-0 flex-1"
-        )}
-        style={
-          session || multiUserEnabled ? { width: CHAT_WIDTH_DEFAULT } : undefined
-        }
+        className="flex h-full shrink-0 gap-0 overflow-hidden rounded-none border-y-0 border-l-0 border-r border-border/80 py-0 shadow-none ring-0"
+        style={{ width: CHAT_WIDTH_DEFAULT }}
       >
         <CardContent className="relative flex min-h-0 flex-1 flex-col p-0">
-          {session || multiUserEnabled ? (
-            <ProjectChatHeader
-              conversation={activeConversation}
-              session={session}
-              title={activeConversation.title}
-              updatedAt={activeConversation.updatedAt}
-            />
-          ) : null}
+          <ProjectChatHeader
+            conversation={activeConversation}
+            session={session}
+            title={activeConversation.title}
+            updatedAt={activeConversation.updatedAt}
+          />
           <ScrollArea className="min-h-0 flex-1">
             <div
               className={cn(
@@ -1656,13 +1227,13 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
                 </div>
               ))}
 
-              {!session && (hasSavedApiKey || multiUserEnabled) && sessionError ? (
+              {!session && sessionError ? (
                 <div className="flex flex-col gap-3 rounded-lg border bg-card p-3">
                   <p className="text-sm text-destructive">{sessionError}</p>
                   <div className="flex gap-2">
                     <Button
                       type="button"
-                      onClick={retrySavedApiKey}
+                      onClick={retryMultiUserProvision}
                       disabled={isCreatingSession}
                       className="rounded-md"
                     >
@@ -1674,23 +1245,13 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
                       ) : (
                         <Sparkles data-icon="inline-start" />
                       )}
-                      {multiUserEnabled ? "Retry setup" : "Retry"}
+                      Retry setup
                     </Button>
-                    {!hideApiKeySettings ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setApiKeySettingsOpen(true)}
-                        className="rounded-md"
-                      >
-                        Change API key
-                      </Button>
-                    ) : null}
                   </div>
                 </div>
               ) : null}
 
-              {!session && multiUserEnabled && !sessionError && !isCreatingSession ? (
+              {!session && !sessionError && !isCreatingSession ? (
                 <p className="text-sm text-muted-foreground">
                   Preview is starting. You can type your first prompt below once setup
                   finishes.
@@ -1763,9 +1324,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
           <CardContent className="relative flex min-h-0 flex-1 flex-col bg-background p-0">
             {isPreviewFrameLoading ? (
               <h2 className="absolute inset-x-0 top-4 z-10 px-4 text-center text-sm font-medium text-muted-foreground">
-                {session.previewRuntime === "sandbox"
-                  ? "Loading cloud preview (first start can take 10–40 min)…"
-                  : "Loading preview…"}
+                Loading cloud preview (first start can take 10–40 min)…
               </h2>
             ) : null}
             <iframe
@@ -1776,7 +1335,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
             />
           </CardContent>
         </Card>
-      ) : multiUserEnabled ? (
+      ) : (
         <Card className="flex min-w-0 flex-1 gap-0 overflow-hidden rounded-none border-0 py-0 shadow-none ring-0">
           <CardContent className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-muted/20 p-6 text-center">
             <p className="text-sm font-medium text-muted-foreground">
@@ -1790,16 +1349,7 @@ export function AppBuilder({ multiUserEnabled = false }: AppBuilderProps) {
             </p>
           </CardContent>
         </Card>
-      ) : null}
-      {isOnboardingOpen && !multiUserEnabled ? (
-        <ApiKeyOnboardingModal
-          apiKey={apiKey}
-          isCreatingSession={isCreatingSession}
-          sessionError={sessionError}
-          onApiKeyChange={setApiKey}
-          onSubmit={submitApiKey}
-        />
-      ) : null}
+      )}
     </main>
   )
 }
@@ -2652,25 +2202,6 @@ function compactActivityMessages(messages: ChatMessage[]) {
   }, [])
 }
 
-function appendReadyMessage(messages: ChatMessage[], readyMessage: string) {
-  if (
-    messages.some(
-      (message) => message.role === "assistant" && message.content === readyMessage
-    )
-  ) {
-    return messages
-  }
-
-  return [
-    ...messages,
-    {
-      id: crypto.randomUUID(),
-      role: "assistant" as const,
-      content: readyMessage,
-    },
-  ]
-}
-
 function mergeFileActivityMessages(
   previousMessage: ChatMessage,
   nextMessage: ChatMessage
@@ -2945,88 +2476,6 @@ function AssistantPending() {
   )
 }
 
-function ApiKeyOnboardingModal({
-  apiKey,
-  isCreatingSession,
-  sessionError,
-  onApiKeyChange,
-  onSubmit,
-}: {
-  apiKey: string
-  isCreatingSession: boolean
-  sessionError: string | null
-  onApiKeyChange: (apiKey: string) => void
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void
-}) {
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-background/70 p-6">
-      <form
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="api-key-onboarding-title"
-        className="flex w-full max-w-sm flex-col overflow-hidden rounded-md border bg-card text-card-foreground shadow-lg"
-        onSubmit={onSubmit}
-      >
-        <div className="border-b px-4 py-3">
-          <div className="mb-3 flex items-center gap-2 text-muted-foreground">
-            <div className="grid size-6 place-items-center rounded-md bg-muted text-foreground">
-              <Cube aria-hidden="true" size={14} weight="duotone" />
-            </div>
-            <span className="text-xs font-medium">App Builder</span>
-          </div>
-          <h2
-            id="api-key-onboarding-title"
-            className="text-base font-semibold tracking-tight"
-          >
-            Connect Cursor to start building
-          </h2>
-          <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-            Add your Cursor API key to start a local preview workspace. You can
-            update or clear it later from settings.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-3 p-4">
-          <label
-            htmlFor="onboarding-cursor-api-key"
-            className="text-xs font-medium"
-          >
-            Cursor API key
-          </label>
-          <Input
-            id="onboarding-cursor-api-key"
-            type="password"
-            value={apiKey}
-            onChange={(event) => onApiKeyChange(event.target.value)}
-            placeholder="crsr_... or grok_..."
-            autoComplete="off"
-            disabled={isCreatingSession}
-            className="h-9 rounded-md font-mono text-sm"
-            autoFocus
-          />
-          {sessionError ? (
-            <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
-              {sessionError}
-            </p>
-          ) : null}
-          <Button
-            type="submit"
-            disabled={!apiKey.trim() || isCreatingSession}
-            className="h-9 rounded-md"
-          >
-            {isCreatingSession ? (
-              <Loader2 data-icon="inline-start" className="animate-spin" />
-            ) : (
-              <ArrowRight data-icon="inline-start" weight="bold" />
-            )}
-            Start local builder
-          </Button>
-        </div>
-      </form>
-    </div>
-  )
-}
-
 function ClerkSidebarAuthControls() {
   const { isSignedIn } = useAuth()
 
@@ -3048,49 +2497,25 @@ function ClerkSidebarAuthControls() {
 function ConversationSidebar({
   conversations,
   activeConversationId,
-  apiKey,
-  hideApiKeySettings,
-  multiUserEnabled,
-  hasSavedApiKey,
-  isApiKeyClearConfirming,
-  isApiKeySettingsOpen,
   isCreatingSession,
-  sessionError,
   titleGenerationConversationIds,
   user,
-  onApiKeyChange,
-  onApiKeySettingsOpenChange,
-  onClearSavedApiKey,
   onCreateConversation,
   onGenerateName,
   onHideSidebar,
   onRenameConversation,
-  onRequireApiKey,
   onSelectConversation,
-  onSubmitApiKey,
 }: {
   conversations: Conversation[]
   activeConversationId: string
-  apiKey: string
-  hideApiKeySettings: boolean
-  multiUserEnabled: boolean
-  hasSavedApiKey: boolean
-  isApiKeyClearConfirming: boolean
-  isApiKeySettingsOpen: boolean
   isCreatingSession: boolean
-  sessionError: string | null
   titleGenerationConversationIds: ReadonlySet<string>
   user: CurrentUser | null
-  onApiKeyChange: (apiKey: string) => void
-  onApiKeySettingsOpenChange: (open: boolean) => void
-  onClearSavedApiKey: () => void
   onCreateConversation: () => void
   onGenerateName: (conversationId: string) => void
   onHideSidebar: () => void
   onRenameConversation: (conversationId: string, title: string) => void
-  onRequireApiKey: () => void
   onSelectConversation: (conversationId: string) => void
-  onSubmitApiKey: (event: FormEvent<HTMLFormElement>) => void
 }) {
   const [contextMenu, setContextMenu] = useState<ProjectContextMenuState | null>(
     null
@@ -3215,11 +2640,8 @@ function ConversationSidebar({
               type="button"
               variant="ghost"
               className="min-w-0 flex-1 justify-start rounded-md px-2 py-1.5 text-sm text-muted-foreground"
-              onClick={
-                multiUserEnabled || hasSavedApiKey
-                  ? onCreateConversation
-                  : onRequireApiKey
-              }
+              onClick={onCreateConversation}
+              disabled={isCreatingSession}
             >
               <Plus data-icon="inline-start" />
               New project
@@ -3379,121 +2801,10 @@ function ConversationSidebar({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {multiUserEnabled ? <ClerkSidebarAuthControls /> : null}
-          {!hideApiKeySettings ? (
-            <ApiKeySettingsPopover
-              apiKey={apiKey}
-              hasSavedApiKey={hasSavedApiKey}
-              isClearConfirming={isApiKeyClearConfirming}
-              isCreatingSession={isCreatingSession}
-              open={isApiKeySettingsOpen}
-              sessionError={sessionError}
-              onApiKeyChange={onApiKeyChange}
-              onClearSavedApiKey={onClearSavedApiKey}
-              onOpenChange={onApiKeySettingsOpenChange}
-              onSubmit={onSubmitApiKey}
-            />
-          ) : null}
+          <ClerkSidebarAuthControls />
         </div>
       </div>
     </aside>
-  )
-}
-
-function ApiKeySettingsPopover({
-  apiKey,
-  hasSavedApiKey,
-  isClearConfirming,
-  isCreatingSession,
-  open,
-  sessionError,
-  onApiKeyChange,
-  onClearSavedApiKey,
-  onOpenChange,
-  onSubmit,
-}: {
-  apiKey: string
-  hasSavedApiKey: boolean
-  isClearConfirming: boolean
-  isCreatingSession: boolean
-  open: boolean
-  sessionError: string | null
-  onApiKeyChange: (apiKey: string) => void
-  onClearSavedApiKey: () => void
-  onOpenChange: (open: boolean) => void
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void
-}) {
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger
-        render={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="rounded-md text-muted-foreground"
-            aria-label="Open Cursor API key settings"
-            title="Open Cursor API key settings"
-          />
-        }
-      >
-        <Settings aria-hidden="true" />
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 rounded-md">
-        <PopoverHeader>
-          <PopoverTitle>Cursor API key</PopoverTitle>
-          <PopoverDescription>
-            {hasSavedApiKey ? "Saved for future projects." : "Required to start."}
-          </PopoverDescription>
-        </PopoverHeader>
-        <form className="flex flex-col gap-2" onSubmit={onSubmit}>
-          <FieldGroup className="gap-2">
-            <Field>
-              <FieldLabel htmlFor="settings-cursor-api-key">API key</FieldLabel>
-              <Input
-                id="settings-cursor-api-key"
-                type="password"
-                value={apiKey}
-                onChange={(event) => onApiKeyChange(event.target.value)}
-                placeholder="crsr_... or grok_..."
-                autoComplete="off"
-                disabled={isCreatingSession}
-                className="rounded-md"
-              />
-            </Field>
-            {sessionError ? (
-              <p role="alert" className="text-sm text-destructive">
-                {sessionError}
-              </p>
-            ) : null}
-            <Button
-              type="submit"
-              className="rounded-md"
-              disabled={!apiKey.trim() || isCreatingSession}
-            >
-              {isCreatingSession ? (
-                <Loader2 data-icon="inline-start" className="animate-spin" />
-              ) : (
-                <ArrowRight data-icon="inline-start" weight="bold" />
-              )}
-              Save key
-            </Button>
-          </FieldGroup>
-        </form>
-        <div className="border-t pt-2">
-          <Button
-            type="button"
-            variant={isClearConfirming ? "destructive" : "ghost"}
-            size="sm"
-            className="w-full justify-start rounded-md text-muted-foreground"
-            disabled={!hasSavedApiKey || isCreatingSession}
-            onClick={onClearSavedApiKey}
-          >
-            {isClearConfirming ? "Confirm clear saved key" : "Clear saved key"}
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
   )
 }
 
@@ -3905,14 +3216,6 @@ function parseServerSentEvent(chunk: string) {
   }
 }
 
-function getSavedCursorApiKey() {
-  if (typeof window === "undefined") {
-    return undefined
-  }
-
-  return window.localStorage.getItem(SAVED_CURSOR_API_KEY)?.trim()
-}
-
 function getFriendlyErrorMessage(error: unknown) {
   const message =
     error instanceof Error ? error.message : "The agent request failed."
@@ -4195,23 +3498,11 @@ function parseModelSelectionValue(value: string): {
   return { id: fallbackModels[0].id }
 }
 
-class SessionRequestError extends Error {
-  constructor(
-    message: string,
-    readonly code?: string
-  ) {
-    super(message)
-  }
-}
-
-function isMissingApiKeyError(error: unknown) {
-  return error instanceof SessionRequestError && error.code === "missing_api_key"
-}
-
 function isUnknownSessionError(error: unknown) {
-  return (
-    error instanceof SessionRequestError && error.code === "unknown_session"
-  )
+  if (!(error instanceof Error)) {
+    return false
+  }
+  return /unknown app builder session/i.test(error.message)
 }
 
 function getFriendlySessionError(message: string) {
@@ -4221,7 +3512,7 @@ function getFriendlySessionError(message: string) {
   ) {
     return [
       "Sandbox preview timed out while npm install or Vite was starting.",
-      "Wait and try again once, or set APP_BUILDER_PREVIEW_RUNTIME=local in .env.local for faster local previews.",
+      "Wait a few minutes and use Retry setup once.",
     ].join(" ")
   }
 
@@ -4241,7 +3532,7 @@ function getFriendlySessionError(message: string) {
   ) {
     return [
       "Vercel Sandbox concurrency limit reached (10 running VMs on Hobby).",
-      "Stop old sandboxes in the Vercel dashboard, delete extra projects in the sidebar, or set APP_BUILDER_PREVIEW_RUNTIME=local in .env.local and restart dev.",
+      "Stop old sandboxes in the Vercel dashboard, delete extra projects in the sidebar, then use Retry setup.",
     ].join(" ")
   }
 
@@ -4258,36 +3549,6 @@ function getFriendlySessionError(message: string) {
   }
 
   return message
-}
-
-async function requestSession(
-  apiKey?: string,
-  sessionId?: string,
-  options?: { persistApiKey?: boolean; projectId?: string }
-): Promise<Session> {
-  const response = await fetch("/api/sessions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      apiKey,
-      persistApiKey: options?.persistApiKey,
-      sessionId,
-      projectId: options?.projectId,
-    }),
-  })
-  const data = (await response.json()) as {
-    code?: string
-    error?: string
-  }
-
-  if (!response.ok) {
-    throw new SessionRequestError(
-      data.error ?? "Failed to create a session.",
-      data.code
-    )
-  }
-
-  return data as Session
 }
 
 function getConversationById(
@@ -4318,7 +3579,7 @@ function remoteProjectToConversation(
           id: project.builderSessionId,
           previewUrl: project.previewUrl,
           projectPath: "",
-          previewRuntime: project.previewRuntime ?? "local",
+          previewRuntime: project.previewRuntime ?? "sandbox",
           models: fallbackModels,
           user: null,
         } satisfies Session)
@@ -4483,127 +3744,8 @@ function getProjectNameMessages(conversation: Conversation): ProjectNameMessage[
     : conversationContext
 }
 
-function readPersistedAppState(): PersistedAppState {
-  if (typeof window === "undefined") {
-    return createInitialAppState()
-  }
-
-  try {
-    const raw = window.localStorage.getItem(SAVED_CHAT_STATE)
-    if (!raw) {
-      return createInitialAppState()
-    }
-
-    const parsed = JSON.parse(raw) as unknown
-    const appState = parsePersistedAppState(parsed)
-    if (appState) {
-      return appState
-    }
-  } catch {
-    return createInitialAppState()
-  }
-
-  return createInitialAppState()
-}
-
-function createInitialAppState(): PersistedAppState {
-  const conversation = createEmptyConversation("Project 1")
-  return {
-    version: 2,
-    activeConversationId: conversation.id,
-    conversations: [conversation],
-  }
-}
-
-function parsePersistedAppState(value: unknown): PersistedAppState | null {
-  if (!value || typeof value !== "object") {
-    return null
-  }
-
-  const parsed = value as Partial<PersistedAppState>
-  if (parsed.version !== 2 || !Array.isArray(parsed.conversations)) {
-    return null
-  }
-
-  const conversations = parsed.conversations
-    .map(normalizePersistedConversation)
-    .filter((conversation): conversation is Conversation => Boolean(conversation))
-
-  if (conversations.length === 0) {
-    return null
-  }
-
-  const activeConversationId =
-    typeof parsed.activeConversationId === "string" &&
-    conversations.some(
-      (conversation) => conversation.id === parsed.activeConversationId
-    )
-      ? parsed.activeConversationId
-      : conversations[0].id
-
-  return {
-    version: 2,
-    activeConversationId,
-    conversations,
-  }
-}
-
-function normalizePersistedConversation(value: unknown): Conversation | null {
-  if (!value || typeof value !== "object") {
-    return null
-  }
-
-  const conversation = value as Partial<Conversation>
-  if (
-    typeof conversation.id !== "string" ||
-    typeof conversation.title !== "string"
-  ) {
-    return null
-  }
-
-  return {
-    id: conversation.id,
-    title: conversation.title || "Untitled project",
-    createdAt: isFiniteTimestamp(conversation.createdAt)
-      ? conversation.createdAt
-      : Date.now(),
-    updatedAt: isFiniteTimestamp(conversation.updatedAt)
-      ? conversation.updatedAt
-      : Date.now(),
-    messages: Array.isArray(conversation.messages)
-      ? compactActivityMessages(conversation.messages.filter(isChatMessage))
-      : [],
-    input: typeof conversation.input === "string" ? conversation.input : "",
-    model:
-      typeof conversation.model === "string"
-        ? conversation.model
-        : fallbackModelSelection,
-    session: normalizeSession(conversation.session),
-  }
-}
-
-function normalizeSession(value: unknown): Session | null {
-  if (!isSession(value)) {
-    return null
-  }
-
-  return {
-    ...value,
-    models: ensureModelCatalog(value.models),
-    user: isCurrentUser(value.user) ? value.user : null,
-  }
-}
-
 function isFiniteTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value)
-}
-
-function writePersistedAppState(state: PersistedAppState) {
-  if (typeof window === "undefined") {
-    return
-  }
-
-  window.localStorage.setItem(SAVED_CHAT_STATE, JSON.stringify(state))
 }
 
 function isChatMessage(value: unknown): value is ChatMessage {

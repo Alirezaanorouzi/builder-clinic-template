@@ -1,15 +1,9 @@
-/** When false (production default), users cannot paste their own Cursor API key. */
-export function allowUserApiKeys() {
-  if (process.env.ALLOW_USER_API_KEYS === "true") {
-    return true
-  }
-  if (process.env.ALLOW_USER_API_KEYS === "false") {
-    return false
-  }
-  return process.env.NODE_ENV !== "production"
-}
-
 import { isDatabaseUrlConfigured } from "@/lib/db/database-url"
+
+/** Cloud builder: users never paste API keys (server uses CURSOR_API_KEY). */
+export function allowUserApiKeys() {
+  return process.env.ALLOW_USER_API_KEYS === "true"
+}
 
 export function isDatabaseConfigured() {
   return isDatabaseUrlConfigured()

@@ -1,4 +1,4 @@
-export type PreviewRuntimeKind = "local" | "sandbox"
+export type PreviewRuntimeKind = "sandbox"
 
 export const SANDBOX_PREVIEW_PORT = 5173
 
@@ -20,10 +20,8 @@ function parsePositiveInt(raw: string | undefined, fallback: number) {
   return Number.isFinite(value) && value > 0 ? value : fallback
 }
 
-/** How generated apps are served: machine-local Vite or Vercel Sandbox HTTPS URL. */
 export function getPreviewRuntimeKind(): PreviewRuntimeKind {
-  const value = process.env.APP_BUILDER_PREVIEW_RUNTIME?.trim().toLowerCase()
-  return value === "sandbox" ? "sandbox" : "local"
+  return "sandbox"
 }
 
 /** Persistent sandboxes keep snapshots (fast resume, counts against Hobby storage caps). */

@@ -3,7 +3,7 @@ export type RemoteProject = {
   title: string
   builderSessionId: string | null
   previewUrl: string | null
-  previewRuntime: "local" | "sandbox" | null
+  previewRuntime: "sandbox" | null
   provisionStatus: "pending" | "ready" | "error"
   provisionError: string | null
   modelSelection: string | null
@@ -18,24 +18,6 @@ export type RemoteMessage = {
   content: string
   payload: unknown
   createdAt: string
-}
-
-export type AppBuilderConfig = {
-  multiUser: boolean
-  allowUserApiKeys: boolean
-  previewRuntime: "local" | "sandbox"
-}
-
-export async function fetchAppBuilderConfig(): Promise<AppBuilderConfig> {
-  const response = await fetch("/api/config")
-  if (!response.ok) {
-    return {
-      multiUser: false,
-      allowUserApiKeys: true,
-      previewRuntime: "local",
-    }
-  }
-  return (await response.json()) as AppBuilderConfig
 }
 
 export async function fetchProjects(): Promise<RemoteProject[]> {
