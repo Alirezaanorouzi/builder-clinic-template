@@ -124,7 +124,7 @@ async function waitForSandboxPort(
       cmd: "bash",
       args: [
         "-c",
-        `curl -sf http://127.0.0.1:${port}${curlPath} >/dev/null && echo up || true`,
+        `(ss -tln 2>/dev/null | grep -q ":${port} " && echo up) || (curl -sS --connect-timeout 2 -m 5 http://127.0.0.1:${port}${curlPath} -o /dev/null >/dev/null 2>&1 && echo up) || true`,
       ],
     })
     if ((await ping.stdout()).includes("up")) {
@@ -140,8 +140,16 @@ async function waitForSandboxPort(
     await new Promise((resolve) => setTimeout(resolve, 1000))
   }
 
+  const diag = await sandbox.runCommand({
+    cmd: "bash",
+    args: [
+      "-c",
+      `ss -tln 2>/dev/null | grep ":${port} " || ps aux | head -20`,
+    ],
+  })
+  const diagOut = (await diag.stdout()).trim()
   throw new Error(
-    `Timed out waiting for sandbox port ${port} after ${Math.round(timeoutMs / 60_000)} minutes.`
+    `Timed out waiting for sandbox port ${port} after ${Math.round(timeoutMs / 60_000)} minutes. Diagnostics: ${diagOut.slice(0, 400)}`
   )
 }
 
@@ -189,10 +197,11 @@ export async function provisionSandboxPreview(
     logLabel: string,
     previewWaitMs = SANDBOX_VITE_READY_TIMEOUT_MS
   ) => {
-    pushLog(`${logLabel}: starting Next.js + agent runner…`)
+    pushLog(`${logLabel}: starting Next.js (port ${SANDBOX_PREVIEW_PORT})…`)
     await startNextDevDetached(s)
-    await startAgentRunnerDetached(s, runnerEnv)
     await waitForSandboxPort(s, SANDBOX_PREVIEW_PORT, pushLog, "/", previewWaitMs)
+    pushLog(`${logLabel}: starting agent runner (port ${SANDBOX_AGENT_RUNNER_PORT})…`)
+    await startAgentRunnerDetached(s, runnerEnv)
     await waitForSandboxPort(
       s,
       SANDBOX_AGENT_RUNNER_PORT,
@@ -214,6 +223,7 @@ export async function provisionSandboxPreview(
     persistent: sandboxPersistentEnabled(),
     timeout: SANDBOX_VM_SESSION_TIMEOUT_MS,
     keepLastSnapshots: SANDBOX_KEEP_LAST_SNAPSHOTS,
+    resume: true,
     resources: { vcpus: 2 },
     ...credentials,
     tags: {
@@ -241,13 +251,11 @@ export async function provisionSandboxPreview(
         await writeTemplateToSandbox(s)
         await runNpmInstall(s, pushLog)
       }
-      await startPreviewServices(
-        s,
-        "onResume",
-        hasPackage ? SANDBOX_SERVICE_READY_TIMEOUT_MS : SANDBOX_VITE_READY_TIMEOUT_MS
-      )
+      await startPreviewServices(s, "onResume", SANDBOX_VITE_READY_TIMEOUT_MS)
     },
   })
+
+  await ensureProvisionTimeout(sandbox)
 
   try {
     await sandbox.update({
@@ -266,14 +274,14 @@ export async function provisionSandboxPreview(
       cmd: "bash",
       args: [
         "-c",
-        `curl -sf http://127.0.0.1:${SANDBOX_PREVIEW_PORT} >/dev/null && echo up || true`,
+        `curl -sS --connect-timeout 2 -m 5 http://127.0.0.1:${SANDBOX_PREVIEW_PORT}/ -o /dev/null >/dev/null 2>&1 && echo up || true`,
       ],
     })
     const runnerUp = await sandbox.runCommand({
       cmd: "bash",
       args: [
         "-c",
-        `curl -sf http://127.0.0.1:${SANDBOX_AGENT_RUNNER_PORT}/health >/dev/null && echo up || true`,
+        `curl -sS --connect-timeout 2 -m 5 http://127.0.0.1:${SANDBOX_AGENT_RUNNER_PORT}/health -o /dev/null >/dev/null 2>&1 && echo up || true`,
       ],
     })
     const previewRunning = (await previewUp.stdout()).includes("up")
@@ -284,7 +292,7 @@ export async function provisionSandboxPreview(
       await startPreviewServices(
         sandbox,
         previewRunning ? "runner restart" : "service restart",
-        SANDBOX_SERVICE_READY_TIMEOUT_MS
+        SANDBOX_VITE_READY_TIMEOUT_MS
       )
     }
   }

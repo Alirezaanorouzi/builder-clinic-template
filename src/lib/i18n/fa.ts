@@ -224,10 +224,19 @@ export function getNextProjectNumber(
 }
 
 export function friendlySessionError(message: string): string {
-  if (
-    message.includes("Timed out waiting for Next.js") ||
-    message.toLowerCase().includes("timeout")
-  ) {
+  if (message.includes("Timed out waiting for sandbox port")) {
+    const portMatch = message.match(/port (\d+)/)
+    const port = portMatch?.[1]
+    const base = fa.sessionErrors.sandboxTimeout
+    if (port === "3921") {
+      return `${base} (بوت runner دستیار روی پورت ${port} طول کشید؛ چند دقیقه دیگر تلاش کنید یا پروژه جدید بسازید.)`
+    }
+    if (port === "5173") {
+      return `${base} (Next.js هنوز بالا نیامده؛ اولین بار ممکن است چند دقیقه طول بکشد.)`
+    }
+    return base
+  }
+  if (message.includes("Timed out waiting for Next.js")) {
     return fa.sessionErrors.sandboxTimeout
   }
   if (

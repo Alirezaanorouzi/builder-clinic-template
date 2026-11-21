@@ -18,10 +18,10 @@ export const SANDBOX_VITE_READY_TIMEOUT_MS = Math.min(
   SANDBOX_VM_SESSION_BOOTSTRAP_MS - 60_000
 )
 
-/** Dev server + agent runner health checks during provision (Next cold compile). */
-export const SANDBOX_SERVICE_READY_TIMEOUT_MS = Math.max(
-  parsePositiveInt(process.env.SANDBOX_SERVICE_READY_TIMEOUT_MS, 3 * 60 * 1000),
-  60_000
+/** Agent runner health during provision (after preview is up). */
+export const SANDBOX_SERVICE_READY_TIMEOUT_MS = Math.min(
+  parsePositiveInt(process.env.SANDBOX_SERVICE_READY_TIMEOUT_MS, 10 * 60 * 1000),
+  SANDBOX_VITE_READY_TIMEOUT_MS
 )
 
 function parsePositiveInt(raw: string | undefined, fallback: number) {
