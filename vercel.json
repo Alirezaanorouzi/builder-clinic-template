@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "src/app/api/projects/[projectId]/provision/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/chat/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}

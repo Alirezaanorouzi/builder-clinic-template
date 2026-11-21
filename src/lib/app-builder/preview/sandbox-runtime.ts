@@ -8,6 +8,7 @@ import {
   SANDBOX_AGENT_RUNNER_PORT,
   SANDBOX_KEEP_LAST_SNAPSHOTS,
   SANDBOX_PREVIEW_PORT,
+  SANDBOX_SERVICE_READY_TIMEOUT_MS,
   SANDBOX_VM_SESSION_BOOTSTRAP_MS,
   SANDBOX_VM_SESSION_TIMEOUT_MS,
   SANDBOX_VITE_READY_TIMEOUT_MS,
@@ -183,18 +184,26 @@ export async function provisionSandboxPreview(
   let sandbox!: Sandbox
   let created = false
 
-  const startPreviewServices = async (s: Sandbox, logLabel: string) => {
+  const startPreviewServices = async (
+    s: Sandbox,
+    logLabel: string,
+    previewWaitMs = SANDBOX_VITE_READY_TIMEOUT_MS
+  ) => {
     pushLog(`${logLabel}: starting Next.js + agent runner…`)
     await startNextDevDetached(s)
     await startAgentRunnerDetached(s, runnerEnv)
-    await waitForSandboxPort(s, SANDBOX_PREVIEW_PORT, pushLog)
+    await waitForSandboxPort(s, SANDBOX_PREVIEW_PORT, pushLog, "/", previewWaitMs)
     await waitForSandboxPort(
       s,
       SANDBOX_AGENT_RUNNER_PORT,
       pushLog,
       "/health",
-      Math.min(120_000, SANDBOX_VITE_READY_TIMEOUT_MS)
+      SANDBOX_SERVICE_READY_TIMEOUT_MS
     )
+  }
+
+  const ensureProvisionTimeout = async (s: Sandbox) => {
+    await s.extendTimeout(SANDBOX_VM_SESSION_BOOTSTRAP_MS)
   }
 
   const credentials = sandboxCredentialsFromEnv()
@@ -224,22 +233,25 @@ export async function provisionSandboxPreview(
     },
     onResume: async (s) => {
       pushLog(`resumed sandbox ${name}`)
+      await s.extendTimeout(SANDBOX_VM_SESSION_BOOTSTRAP_MS)
       await ensureSandboxWorkspace(s)
       await writeAgentRunnerToSandbox(s)
       const hasPackage = await s.readFileToBuffer({ path: "package.json" })
       if (!hasPackage) {
         await writeTemplateToSandbox(s)
-        await s.extendTimeout(SANDBOX_VM_SESSION_BOOTSTRAP_MS)
         await runNpmInstall(s, pushLog)
       }
-      await startPreviewServices(s, "onResume")
+      await startPreviewServices(
+        s,
+        "onResume",
+        hasPackage ? SANDBOX_SERVICE_READY_TIMEOUT_MS : SANDBOX_VITE_READY_TIMEOUT_MS
+      )
     },
   })
 
   try {
     await sandbox.update({
       keepLastSnapshots: SANDBOX_KEEP_LAST_SNAPSHOTS,
-      timeout: SANDBOX_VM_SESSION_TIMEOUT_MS,
       ports: [SANDBOX_PREVIEW_PORT, SANDBOX_AGENT_RUNNER_PORT],
     })
   } catch (error) {
@@ -267,9 +279,12 @@ export async function provisionSandboxPreview(
     const previewRunning = (await previewUp.stdout()).includes("up")
     const runnerRunning = (await runnerUp.stdout()).includes("up")
     if (!previewRunning || !runnerRunning) {
+      await ensureProvisionTimeout(sandbox)
+      await writeAgentRunnerToSandbox(sandbox)
       await startPreviewServices(
         sandbox,
-        previewRunning ? "runner restart" : "service restart"
+        previewRunning ? "runner restart" : "service restart",
+        SANDBOX_SERVICE_READY_TIMEOUT_MS
       )
     }
   }

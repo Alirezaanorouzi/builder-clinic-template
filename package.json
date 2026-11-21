@@ -7,6 +7,8 @@
   },
   "scripts": {
     "dev": "next dev",
+    "embed:runner": "node scripts/embed-sandbox-runner.mjs",
+    "prebuild": "npm run embed:runner",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
