@@ -44,6 +44,7 @@ export const projects = pgTable("projects", {
     .default("pending"),
   provisionError: text("provision_error"),
   modelSelection: text("model_selection"),
+  agentRunnerSecret: text("agent_runner_secret"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

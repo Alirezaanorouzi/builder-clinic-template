@@ -5,6 +5,7 @@ import { resolveServerCursorApiKey } from "@/lib/auth/resolve-api-key"
 import {
   InvalidCursorApiKeyError,
   createSession,
+  getSessionAgentRunnerSecret,
   restoreSession,
   validateCursorApiKey,
 } from "@/lib/app-builder/server"
@@ -62,23 +63,34 @@ export async function POST(request: Request, { params }: Params) {
 
   let session
   try {
+    const runnerSecret = project.agentRunnerSecret ?? undefined
     if (project.builderSessionId) {
       try {
-        session = await restoreSession(project.builderSessionId, apiKey)
+        session = await restoreSession(project.builderSessionId, apiKey, {
+          agentRunnerSecret: runnerSecret,
+        })
       } catch {
-        session = await createSession(apiKey, { projectId })
+        session = await createSession(apiKey, {
+          projectId,
+          agentRunnerSecret: runnerSecret,
+        })
       }
     } else {
-      session = await createSession(apiKey, { projectId })
+      session = await createSession(apiKey, {
+        projectId,
+        agentRunnerSecret: runnerSecret,
+      })
     }
 
     const previewRuntime = getPreviewRuntimeKind()
+    const agentRunnerSecret = getSessionAgentRunnerSecret(session.id)
     await updateProject(projectId, user.id, {
       builderSessionId: session.id,
       previewUrl: session.previewUrl,
       previewRuntime,
       provisionStatus: "ready",
       provisionError: null,
+      ...(agentRunnerSecret ? { agentRunnerSecret } : {}),
     })
 
     return Response.json({

@@ -8,7 +8,6 @@ import {
   type ModelSelection,
   type Run,
   type SDKAgent,
-  type SDKMessage,
   type SDKModel,
 } from "@cursor/sdk"
 
@@ -19,9 +18,16 @@ import { isRecognizedCursorApiKey, normalizeCursorApiKey } from "./api-key"
 import { provisionPreviewRuntime } from "./preview"
 import type { PreviewRuntimeHandle } from "./preview/types"
 import { getBuilderSessionRegistry } from "./session-registry"
-import { generatedAppFiles } from "./template"
+import { buildAgentPrompt } from "./agent-instructions"
+import {
+  emitSdkMessage,
+  type AgentStreamEvent,
+} from "./agent-stream-events"
 import { buildLocalAgentOptions } from "./cursor-local-agent"
+import { streamAgentFromSandboxRunner } from "./sandbox-runner-proxy"
 import { resolveAppBuilderRoot } from "./workspace-paths"
+
+export type { AgentStreamEvent } from "./agent-stream-events"
 
 type BuilderSession = {
   id: string
@@ -36,6 +42,7 @@ type BuilderSession = {
   ready: Promise<void>
   previewHandle?: PreviewRuntimeHandle
   agent?: SDKAgent
+  agentRunnerSecret?: string
   setupError?: string
 }
 
@@ -110,20 +117,6 @@ export class ProjectNameGenerationTimeoutError extends Error {
   }
 }
 
-export type AgentStreamEvent =
-  | { type: "assistant_delta"; text: string }
-  | { type: "thinking"; id?: string; text: string }
-  | {
-      type: "tool_call"
-      callId?: string
-      name: string
-      status: string
-      args?: unknown
-      truncatedArgs?: boolean
-    }
-  | { type: "status"; status: string; message?: string }
-  | { type: "task"; status?: string; text?: string }
-
 export type ProjectNameMessage = {
   role: "assistant" | "user"
   content: string
@@ -138,14 +131,6 @@ const appBuilderRoot = resolveAppBuilderRoot()
 const workspaceRoot = path.join(appBuilderRoot, "sessions")
 const settingsPath = path.join(appBuilderRoot, "settings.json")
 const DEFAULT_PROJECT_NAME_TIMEOUT_MS = 15_000
-const APP_BUILDER_INSTRUCTIONS = [
-  "شما در حال ساخت یک اپ React TypeScript با Next.js (App Router) برای پیش‌نمایش زنده هستید.",
-  "فایل‌ها را مستقیماً در workspace فعلی ویرایش کنید. سرور توسعه در حال اجراست و با تغییر فایل‌ها به‌روز می‌شود.",
-  "تغییرات را روی درخواست کاربر متمرکز نگه دارید؛ تکرارهای کوچک و قابل‌استفاده را به بازنویسی گسترده ترجیح دهید.",
-  "مگر اینکه سرور پیش‌نمایش خراب باشد، سرور dev جدیدی راه‌اندازی نکنید.",
-  "با کاربر به فارسی صحبت کنید؛ پاسخ‌های متنی دستیار و توضیح‌ها فارسی باشند.",
-]
-
 const fallbackModels: ModelCatalogItem[] = [
   {
     id: "auto",
@@ -217,7 +202,7 @@ export async function clearPersistedCursorApiKey() {
 
 export async function createSession(
   apiKey: string,
-  options?: { projectId?: string }
+  options?: { projectId?: string; agentRunnerSecret?: string | null }
 ): Promise<PublicSession> {
   const id = randomUUID()
   const projectPath = options?.projectId
@@ -236,6 +221,7 @@ export async function createSession(
     previewUrl: "",
     logs: [],
     ready: Promise.resolve(),
+    agentRunnerSecret: options?.agentRunnerSecret ?? undefined,
   }
 
   sessions.set(id, session)
@@ -293,6 +279,7 @@ export async function attachBuilderSessionIfMissing(
       apiKey,
       projectId: project.id,
       previewUrlHint: project.previewUrl ?? undefined,
+      agentRunnerSecret: project.agentRunnerSecret ?? undefined,
     })
   })()
 
@@ -309,6 +296,7 @@ async function materializeBuilderSession(options: {
   apiKey: string
   projectId: string
   previewUrlHint?: string
+  agentRunnerSecret?: string | null
 }): Promise<BuilderSession> {
   const existing = sessions.get(options.sessionId)
   if (existing) {
@@ -334,6 +322,7 @@ async function materializeBuilderSession(options: {
     previewUrl: options.previewUrlHint ?? "",
     logs: [],
     ready: Promise.resolve(),
+    agentRunnerSecret: options.agentRunnerSecret ?? undefined,
   }
 
   sessions.set(options.sessionId, session)
@@ -356,15 +345,27 @@ async function materializeBuilderSession(options: {
   return session
 }
 
+export function getSessionAgentRunnerSecret(sessionId: string): string | undefined {
+  const session = sessions.get(sessionId)
+  return (
+    session?.previewHandle?.agentRunnerSecret ?? session?.agentRunnerSecret
+  )
+}
+
 export async function restoreSession(
   sessionId: string,
-  apiKey: string
+  apiKey: string,
+  options?: { agentRunnerSecret?: string | null }
 ): Promise<PublicSession> {
   if (!sessions.has(sessionId)) {
     await attachBuilderSessionIfMissing(sessionId, apiKey)
   }
 
   const session = sessions.get(sessionId)
+
+  if (session && options?.agentRunnerSecret) {
+    session.agentRunnerSecret = options.agentRunnerSecret
+  }
 
   if (!session) {
     throw new UnknownAppBuilderSessionError()
@@ -407,12 +408,35 @@ export async function streamAgentResponse(
   await session.ready
   assertSessionReady(session)
 
+  const handle = session.previewHandle
+  if (handle?.kind === "sandbox" && handle.agentRunnerUrl && handle.agentRunnerSecret) {
+    const modelSelection = model
+      ? encodeLocalSdkModelSelection(parseModelSelection(model), session.models)
+      : undefined
+    await streamAgentFromSandboxRunner({
+      agentRunnerUrl: handle.agentRunnerUrl,
+      agentRunnerSecret: handle.agentRunnerSecret,
+      message: userMessage,
+      previewUrl: session.previewUrl,
+      workspace: "/vercel/sandbox",
+      sessionId: session.id,
+      projectId: session.projectId,
+      model: modelSelection,
+      emit,
+    })
+    return
+  }
+
   const agent = await getOrCreateAgent(session)
   const modelSelection = model
     ? encodeLocalSdkModelSelection(parseModelSelection(model), session.models)
     : undefined
   const run = await agent.send(
-    buildPrompt(userMessage, session),
+    buildAgentPrompt({
+      userMessage,
+      previewUrl: session.previewUrl,
+      workspace: session.projectPath,
+    }),
     modelSelection ? { model: modelSelection } : undefined
   )
 
@@ -421,10 +445,6 @@ export async function streamAgentResponse(
   }
 
   await run.wait()
-
-  if (session.previewHandle?.kind === "sandbox") {
-    await session.previewHandle.syncFromWorkspace(session.projectPath)
-  }
 }
 
 export async function generateProjectName(
@@ -997,13 +1017,12 @@ function normalizeModelToken(value: string) {
 }
 
 async function prepareSession(session: BuilderSession) {
-  await fs.mkdir(session.projectPath, { recursive: true })
-  await writeGeneratedApp(session.projectPath)
-
   const handle = await provisionPreviewRuntime({
     id: session.id,
     projectId: session.projectId,
     projectPath: session.projectPath,
+    cursorApiKey: session.apiKey,
+    agentRunnerSecret: session.agentRunnerSecret ?? null,
     logs: session.logs,
     pushLog: (line) => {
       const trimmed = line.trimEnd()
@@ -1018,16 +1037,7 @@ async function prepareSession(session: BuilderSession) {
   session.previewHandle = handle
   session.previewUrl = handle.previewUrl
   session.port = handle.port
-}
-
-async function writeGeneratedApp(projectPath: string) {
-  await Promise.all(
-    generatedAppFiles.map(async (file) => {
-      const filePath = path.join(projectPath, file.path)
-      await fs.mkdir(path.dirname(filePath), { recursive: true })
-      await fs.writeFile(filePath, file.content)
-    })
-  )
+  session.agentRunnerSecret = handle.agentRunnerSecret
 }
 
 async function getOrCreateAgent(session: BuilderSession) {
@@ -1063,61 +1073,3 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
-function buildPrompt(userMessage: string, session: BuilderSession) {
-  return [
-    ...APP_BUILDER_INSTRUCTIONS,
-    "",
-    `Preview URL: ${session.previewUrl}`,
-    `Workspace: ${session.projectPath}`,
-    "",
-    "User request:",
-    userMessage,
-  ].join("\n")
-}
-
-function emitSdkMessage(
-  event: SDKMessage,
-  emit: (event: AgentStreamEvent) => void
-) {
-  switch (event.type) {
-    case "assistant":
-      for (const block of event.message.content) {
-        if (block.type === "text") {
-          emit({ type: "assistant_delta", text: block.text })
-        } else {
-          emit({
-            type: "tool_call",
-            callId: block.id,
-            name: block.name,
-            status: "requested",
-            args: block.input,
-          })
-        }
-      }
-      break
-    case "thinking": {
-      const thinkingId =
-        "id" in event && typeof event.id === "string" ? event.id : undefined
-      emit({ type: "thinking", id: thinkingId, text: event.text })
-      break
-    }
-    case "tool_call":
-      emit({
-        type: "tool_call",
-        callId: event.call_id,
-        name: event.name,
-        status: event.status,
-        args: event.args,
-        truncatedArgs: event.truncated?.args,
-      })
-      break
-    case "status":
-      emit({ type: "status", status: event.status, message: event.message })
-      break
-    case "task":
-      emit({ type: "task", status: event.status, text: event.text })
-      break
-    default:
-      break
-  }
-}

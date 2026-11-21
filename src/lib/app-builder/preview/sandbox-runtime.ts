@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto"
+
 import { Sandbox } from "@vercel/sandbox"
 
+import { loadSandboxAgentRunnerFiles } from "../sandbox/sandbox-agent-files"
 import { generatedAppFiles } from "../template"
 import {
+  SANDBOX_AGENT_RUNNER_PORT,
+  SANDBOX_KEEP_LAST_SNAPSHOTS,
   SANDBOX_PREVIEW_PORT,
-  SANDBOX_SESSION_TIMEOUT_MS,
+  SANDBOX_VM_SESSION_BOOTSTRAP_MS,
+  SANDBOX_VM_SESSION_TIMEOUT_MS,
   SANDBOX_VITE_READY_TIMEOUT_MS,
   sandboxNameForSession,
   sandboxPersistentEnabled,
@@ -17,7 +23,10 @@ const SANDBOX_WORKDIR = "/vercel/sandbox"
 async function ensureSandboxWorkspace(sandbox: Sandbox) {
   const ready = await sandbox.runCommand({
     cmd: "bash",
-    args: ["-c", `mkdir -p ${SANDBOX_WORKDIR} && test -d ${SANDBOX_WORKDIR} && echo ok`],
+    args: [
+      "-c",
+      `mkdir -p ${SANDBOX_WORKDIR} && test -d ${SANDBOX_WORKDIR} && echo ok`,
+    ],
   })
 
   if (!(await ready.stdout()).includes("ok")) {
@@ -35,6 +44,11 @@ async function writeTemplateToSandbox(sandbox: Sandbox) {
       content: Buffer.from(file.content, "utf8"),
     }))
   )
+}
+
+async function writeAgentRunnerToSandbox(sandbox: Sandbox) {
+  const files = await loadSandboxAgentRunnerFiles()
+  await sandbox.writeFiles(files)
 }
 
 async function runNpmInstall(
@@ -80,21 +94,36 @@ async function startNextDevDetached(sandbox: Sandbox) {
   })
 }
 
+async function startAgentRunnerDetached(
+  sandbox: Sandbox,
+  env: Record<string, string>
+) {
+  await sandbox.runCommand({
+    cmd: "node",
+    args: ["agent-runner.mjs"],
+    cwd: SANDBOX_WORKDIR,
+    detached: true,
+    env,
+  })
+}
+
 async function waitForSandboxPort(
   sandbox: Sandbox,
   port: number,
   pushLog: (line: string) => void,
+  pathCheck = "/",
   timeoutMs = SANDBOX_VITE_READY_TIMEOUT_MS
 ) {
   const startedAt = Date.now()
   let lastProgressLog = startedAt
 
   while (Date.now() - startedAt < timeoutMs) {
+    const curlPath = pathCheck === "/health" ? "/health" : "/"
     const ping = await sandbox.runCommand({
       cmd: "bash",
       args: [
         "-c",
-        `curl -sf http://127.0.0.1:${port} >/dev/null && echo up || true`,
+        `curl -sf http://127.0.0.1:${port}${curlPath} >/dev/null && echo up || true`,
       ],
     })
     if ((await ping.stdout()).includes("up")) {
@@ -103,7 +132,7 @@ async function waitForSandboxPort(
 
     if (Date.now() - lastProgressLog > 15_000) {
       const elapsedSec = Math.round((Date.now() - startedAt) / 1000)
-      pushLog(`waiting for Next.js on port ${port} (${elapsedSec}s)…`)
+      pushLog(`waiting for port ${port} (${elapsedSec}s)…`)
       lastProgressLog = Date.now()
     }
 
@@ -111,7 +140,7 @@ async function waitForSandboxPort(
   }
 
   throw new Error(
-    `Timed out waiting for Next.js on sandbox port ${port} after ${Math.round(timeoutMs / 60_000)} minutes.`
+    `Timed out waiting for sandbox port ${port} after ${Math.round(timeoutMs / 60_000)} minutes.`
   )
 }
 
@@ -142,22 +171,40 @@ export async function provisionSandboxPreview(
 ): Promise<PreviewRuntimeHandle> {
   const name = sandboxNameForSession(context.id, context.projectId)
   const pushLog = (line: string) => context.pushLog(`[sandbox] ${line}`)
+  const agentRunnerSecret =
+    context.agentRunnerSecret?.trim() || randomUUID()
+
+  const runnerEnv: Record<string, string> = {
+    CURSOR_API_KEY: context.cursorApiKey,
+    AGENT_RUNNER_SECRET: agentRunnerSecret,
+    AGENT_RUNNER_PORT: String(SANDBOX_AGENT_RUNNER_PORT),
+  }
 
   let sandbox!: Sandbox
   let created = false
 
-  const startPreviewServer = async (s: Sandbox) => {
+  const startPreviewServices = async (s: Sandbox, logLabel: string) => {
+    pushLog(`${logLabel}: starting Next.js + agent runner…`)
     await startNextDevDetached(s)
+    await startAgentRunnerDetached(s, runnerEnv)
     await waitForSandboxPort(s, SANDBOX_PREVIEW_PORT, pushLog)
+    await waitForSandboxPort(
+      s,
+      SANDBOX_AGENT_RUNNER_PORT,
+      pushLog,
+      "/health",
+      Math.min(120_000, SANDBOX_VITE_READY_TIMEOUT_MS)
+    )
   }
 
   const credentials = sandboxCredentialsFromEnv()
 
   sandbox = await Sandbox.getOrCreate({
     name,
-    ports: [SANDBOX_PREVIEW_PORT],
+    ports: [SANDBOX_PREVIEW_PORT, SANDBOX_AGENT_RUNNER_PORT],
     persistent: sandboxPersistentEnabled(),
-    timeout: SANDBOX_SESSION_TIMEOUT_MS,
+    timeout: SANDBOX_VM_SESSION_TIMEOUT_MS,
+    keepLastSnapshots: SANDBOX_KEEP_LAST_SNAPSHOTS,
     resources: { vcpus: 2 },
     ...credentials,
     tags: {
@@ -167,49 +214,81 @@ export async function provisionSandboxPreview(
     onCreate: async (s) => {
       created = true
       pushLog(`created sandbox ${name}`)
+      await s.extendTimeout(SANDBOX_VM_SESSION_BOOTSTRAP_MS)
       await ensureSandboxWorkspace(s)
       await writeTemplateToSandbox(s)
+      await writeAgentRunnerToSandbox(s)
       pushLog("running npm install in sandbox (first run can take several minutes)…")
       await runNpmInstall(s, pushLog)
-      await startPreviewServer(s)
+      await startPreviewServices(s, "onCreate")
     },
     onResume: async (s) => {
       pushLog(`resumed sandbox ${name}`)
       await ensureSandboxWorkspace(s)
+      await writeAgentRunnerToSandbox(s)
       const hasPackage = await s.readFileToBuffer({ path: "package.json" })
       if (!hasPackage) {
         await writeTemplateToSandbox(s)
+        await s.extendTimeout(SANDBOX_VM_SESSION_BOOTSTRAP_MS)
         await runNpmInstall(s, pushLog)
       }
-      await startPreviewServer(s)
+      await startPreviewServices(s, "onResume")
     },
   })
 
+  try {
+    await sandbox.update({
+      keepLastSnapshots: SANDBOX_KEEP_LAST_SNAPSHOTS,
+      timeout: SANDBOX_VM_SESSION_TIMEOUT_MS,
+      ports: [SANDBOX_PREVIEW_PORT, SANDBOX_AGENT_RUNNER_PORT],
+    })
+  } catch (error) {
+    pushLog(
+      `sandbox update skipped: ${error instanceof Error ? error.message : String(error)}`
+    )
+  }
+
   if (!created) {
     pushLog(`reusing sandbox ${name}`)
-    const ping = await sandbox.runCommand({
+    const previewUp = await sandbox.runCommand({
       cmd: "bash",
       args: [
         "-c",
         `curl -sf http://127.0.0.1:${SANDBOX_PREVIEW_PORT} >/dev/null && echo up || true`,
       ],
     })
-    if (!(await ping.stdout()).includes("up")) {
-      await startPreviewServer(sandbox)
+    const runnerUp = await sandbox.runCommand({
+      cmd: "bash",
+      args: [
+        "-c",
+        `curl -sf http://127.0.0.1:${SANDBOX_AGENT_RUNNER_PORT}/health >/dev/null && echo up || true`,
+      ],
+    })
+    const previewRunning = (await previewUp.stdout()).includes("up")
+    const runnerRunning = (await runnerUp.stdout()).includes("up")
+    if (!previewRunning || !runnerRunning) {
+      await startPreviewServices(
+        sandbox,
+        previewRunning ? "runner restart" : "service restart"
+      )
     }
   }
 
   const previewUrl = sandbox.domain(SANDBOX_PREVIEW_PORT)
+  const agentRunnerUrl = sandbox.domain(SANDBOX_AGENT_RUNNER_PORT)
   pushLog(`preview available at ${previewUrl}`)
+  pushLog(`agent runner at ${agentRunnerUrl}`)
 
   return {
     kind: "sandbox",
     previewUrl,
     port: 0,
+    agentRunnerUrl,
+    agentRunnerSecret,
     syncFromWorkspace: async (projectPath) =>
       syncWorkspaceToSandbox(sandbox, projectPath, pushLog),
     dispose: async () => {
-      /* Keep persistent sandboxes running for mobile / remote preview URLs. */
+      /* Let the VM session stop on timeout for automatic snapshots. */
     },
   }
 }

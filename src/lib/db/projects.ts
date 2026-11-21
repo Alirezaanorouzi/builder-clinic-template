@@ -44,6 +44,7 @@ export async function updateProject(
     provisionStatus: "pending" | "ready" | "error"
     provisionError: string | null
     modelSelection: string | null
+    agentRunnerSecret: string | null
   }>
 ) {
   const db = createDb()

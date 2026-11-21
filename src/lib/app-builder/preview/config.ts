@@ -1,14 +1,21 @@
 export type PreviewRuntimeKind = "sandbox"
 
 export const SANDBOX_PREVIEW_PORT = 5173
+export const SANDBOX_AGENT_RUNNER_PORT = 3921
 
-/** Hobby plan session cap is 45 minutes — stay under that for Vite readiness. */
-export const SANDBOX_SESSION_TIMEOUT_MS = 45 * 60 * 1000
+/** Default Vercel sandbox VM session length after boot (5 minutes). */
+export const SANDBOX_VM_SESSION_TIMEOUT_MS = 5 * 60 * 1000
 
-/** First `npm install` + Vite boot in a new sandbox can take 10–40+ minutes. */
+/** Hobby plan max VM session length — used during first cold npm install. */
+export const SANDBOX_VM_SESSION_BOOTSTRAP_MS = 45 * 60 * 1000
+
+/** @deprecated Use SANDBOX_VM_SESSION_* constants. */
+export const SANDBOX_SESSION_TIMEOUT_MS = SANDBOX_VM_SESSION_TIMEOUT_MS
+
+/** First `npm install` + Next.js boot in a new sandbox VM can take 10–40+ minutes. */
 export const SANDBOX_VITE_READY_TIMEOUT_MS = Math.min(
   parsePositiveInt(process.env.SANDBOX_VITE_READY_TIMEOUT_MS, 40 * 60 * 1000),
-  SANDBOX_SESSION_TIMEOUT_MS - 60_000
+  SANDBOX_VM_SESSION_BOOTSTRAP_MS - 60_000
 )
 
 function parsePositiveInt(raw: string | undefined, fallback: number) {
@@ -32,6 +39,11 @@ export function sandboxPersistentEnabled(): boolean {
   }
   return true
 }
+
+export const SANDBOX_KEEP_LAST_SNAPSHOTS = {
+  count: 1,
+  deleteEvicted: true,
+} as const
 
 export function sandboxNameForSession(
   sessionId: string,

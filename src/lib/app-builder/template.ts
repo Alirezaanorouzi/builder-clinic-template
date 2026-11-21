@@ -17,6 +17,7 @@ export const generatedAppFiles: TemplateFile[] = [
           start: "next start",
         },
         dependencies: {
+          "@cursor/sdk": "1.4.2",
           next: "16.2.4",
           react: "19.2.4",
           "react-dom": "19.2.4",
