@@ -1,3 +1,5 @@
+import type { Sandbox } from "@vercel/sandbox"
+
 export type PreviewRuntimeKind = "sandbox"
 
 export const SANDBOX_PREVIEW_PORT = 5173
@@ -8,6 +10,26 @@ export const SANDBOX_VM_SESSION_TIMEOUT_MS = 5 * 60 * 1000
 
 /** Hobby plan max VM session length — used during first cold npm install. */
 export const SANDBOX_VM_SESSION_BOOTSTRAP_MS = 45 * 60 * 1000
+
+/** How much to extend a fresh 5m session to reach the Hobby bootstrap cap (extend is additive). */
+export const SANDBOX_VM_SESSION_PROVISION_EXTEND_MS =
+  SANDBOX_VM_SESSION_BOOTSTRAP_MS - SANDBOX_VM_SESSION_TIMEOUT_MS
+
+/**
+ * `Sandbox.extendTimeout` adds to the current session length — it does not set an absolute cap.
+ * Call this to reach `targetMs` without exceeding the Hobby maximum (e.g. 5m + 45m extend → error).
+ */
+export async function ensureSandboxSessionTimeoutAtLeast(
+  sandbox: Sandbox,
+  targetMs = SANDBOX_VM_SESSION_BOOTSTRAP_MS
+) {
+  const currentMs = sandbox.currentSession().timeout
+  const increment = targetMs - currentMs
+  if (increment <= 0) {
+    return
+  }
+  await sandbox.extendTimeout(increment)
+}
 
 /** @deprecated Use SANDBOX_VM_SESSION_* constants. */
 export const SANDBOX_SESSION_TIMEOUT_MS = SANDBOX_VM_SESSION_TIMEOUT_MS

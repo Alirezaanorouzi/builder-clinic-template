@@ -11,6 +11,7 @@ import {
   SANDBOX_SERVICE_READY_TIMEOUT_MS,
   SANDBOX_VM_SESSION_BOOTSTRAP_MS,
   SANDBOX_VM_SESSION_TIMEOUT_MS,
+  ensureSandboxSessionTimeoutAtLeast,
   SANDBOX_VITE_READY_TIMEOUT_MS,
   sandboxNameForSession,
   sandboxPersistentEnabled,
@@ -212,7 +213,7 @@ export async function provisionSandboxPreview(
   }
 
   const ensureProvisionTimeout = async (s: Sandbox) => {
-    await s.extendTimeout(SANDBOX_VM_SESSION_BOOTSTRAP_MS)
+    await ensureSandboxSessionTimeoutAtLeast(s, SANDBOX_VM_SESSION_BOOTSTRAP_MS)
   }
 
   const credentials = sandboxCredentialsFromEnv()
@@ -233,7 +234,7 @@ export async function provisionSandboxPreview(
     onCreate: async (s) => {
       created = true
       pushLog(`created sandbox ${name}`)
-      await s.extendTimeout(SANDBOX_VM_SESSION_BOOTSTRAP_MS)
+      await ensureSandboxSessionTimeoutAtLeast(s, SANDBOX_VM_SESSION_BOOTSTRAP_MS)
       await ensureSandboxWorkspace(s)
       await writeTemplateToSandbox(s)
       await writeAgentRunnerToSandbox(s)
@@ -243,7 +244,7 @@ export async function provisionSandboxPreview(
     },
     onResume: async (s) => {
       pushLog(`resumed sandbox ${name}`)
-      await s.extendTimeout(SANDBOX_VM_SESSION_BOOTSTRAP_MS)
+      await ensureSandboxSessionTimeoutAtLeast(s, SANDBOX_VM_SESSION_BOOTSTRAP_MS)
       await ensureSandboxWorkspace(s)
       await writeAgentRunnerToSandbox(s)
       const hasPackage = await s.readFileToBuffer({ path: "package.json" })
