@@ -27,6 +27,27 @@ export function ensureCursorServerlessPaths(): void {
   }
 }
 
+/** SDK also writes under `~/.cursor/projects/{workspace-slug}/sdk-agent-store`. */
+export function workspaceRefSlug(workspaceRef: string): string {
+  return workspaceRef
+    .replace(/^\/+/, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+}
+
+export async function ensureSdkAgentStateDirs(workspaceRef: string): Promise<void> {
+  ensureCursorServerlessPaths()
+  const home = process.env.HOME?.trim() || os.tmpdir()
+  const slug = workspaceRefSlug(workspaceRef)
+  await fs.mkdir(
+    path.join(home, ".cursor", "projects", slug, "sdk-agent-store"),
+    { recursive: true }
+  )
+  await fs.mkdir(path.join(home, ".cursor", "projects", slug), {
+    recursive: true,
+  })
+}
+
 export function resolveAgentStoreDir(options: {
   projectId?: string
   sessionId: string
@@ -49,7 +70,7 @@ export async function buildLocalAgentOptions(options: {
   projectId?: string
   sessionId: string
 }): Promise<LocalAgentOptions> {
-  ensureCursorServerlessPaths()
+  await ensureSdkAgentStateDirs(options.cwd)
   return {
     cwd: options.cwd,
     settingSources: [],

@@ -7,6 +7,9 @@ import { Agent, JsonlLocalAgentStore } from "@cursor/sdk"
 const WORKDIR = "/vercel/sandbox"
 const AGENT_STORE_DIR = path.join(WORKDIR, ".cursor-agent-store")
 
+process.env.HOME = WORKDIR
+process.env.CURSOR_DATA_DIR = path.join(WORKDIR, ".cursor-data")
+
 const port = Number.parseInt(process.env.AGENT_RUNNER_PORT ?? "3921", 10)
 const runnerSecret = process.env.AGENT_RUNNER_SECRET?.trim() ?? ""
 const cursorApiKey = process.env.CURSOR_API_KEY?.trim() ?? ""
@@ -36,7 +39,15 @@ async function getOrCreateAgent(sessionId, projectId) {
     throw new Error("CURSOR_API_KEY is not configured in the sandbox runner.")
   }
 
+  await mkdir(process.env.CURSOR_DATA_DIR, { recursive: true })
   await mkdir(AGENT_STORE_DIR, { recursive: true })
+
+  const workspaceSlug = WORKDIR.replace(/^\/+/, "").replace(/[^a-zA-Z0-9]+/g, "-")
+  await mkdir(
+    path.join(WORKDIR, ".cursor", "projects", workspaceSlug, "sdk-agent-store"),
+    { recursive: true }
+  )
+
   const store = new JsonlLocalAgentStore(AGENT_STORE_DIR)
   const agentId = projectId
     ? `app-builder-project-${projectId}`

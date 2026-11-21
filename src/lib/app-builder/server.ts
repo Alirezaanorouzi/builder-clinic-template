@@ -300,6 +300,13 @@ async function materializeBuilderSession(options: {
 }): Promise<BuilderSession> {
   const existing = sessions.get(options.sessionId)
   if (existing) {
+    await existing.ready
+    if (options.agentRunnerSecret && !existing.agentRunnerSecret) {
+      existing.agentRunnerSecret = options.agentRunnerSecret
+    }
+    if (!existing.previewHandle?.agentRunnerUrl) {
+      await prepareSession(existing)
+    }
     return existing
   }
 
@@ -408,8 +415,8 @@ export async function streamAgentResponse(
   await session.ready
   assertSessionReady(session)
 
-  const handle = session.previewHandle
-  if (handle?.kind === "sandbox" && handle.agentRunnerUrl && handle.agentRunnerSecret) {
+  if (requireMultiUserMode() || session.projectId) {
+    const handle = await ensureSandboxAgentHandle(session)
     const modelSelection = model
       ? encodeLocalSdkModelSelection(parseModelSelection(model), session.models)
       : undefined
@@ -1014,6 +1021,31 @@ function isFalseValue(valueKey: string) {
 
 function normalizeModelToken(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9.]+/g, "")
+}
+
+async function ensureSandboxAgentHandle(session: BuilderSession) {
+  if (!session.agentRunnerSecret && session.projectId) {
+    const project = await getProjectByBuilderSessionId(session.id)
+    if (project?.agentRunnerSecret) {
+      session.agentRunnerSecret = project.agentRunnerSecret
+    }
+  }
+
+  if (
+    session.previewHandle?.agentRunnerUrl &&
+    session.previewHandle.agentRunnerSecret
+  ) {
+    return session.previewHandle
+  }
+
+  await prepareSession(session)
+  const handle = session.previewHandle
+  if (!handle?.agentRunnerUrl || !handle.agentRunnerSecret) {
+    throw new Error(
+      "Sandbox agent runner is not ready. Open the project menu and tap provision again."
+    )
+  }
+  return handle
 }
 
 async function prepareSession(session: BuilderSession) {
